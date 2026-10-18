@@ -1,0 +1,2455 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Mapa do Galpão</title>
+<style>
+/* Layout: cabeçalho com status ao vivo · faixa de controles · mapa (canvas) + painel lateral; no celular tudo empilha.
+   Cor é reservada para estados e alertas (Okabe-Ito, spec §6.5/Apêndice C); zonas e planta ficam neutras. */
+:root {
+  --bg: #F4F6F8; --surface: #FFFFFF; --surface-2: #EDF0F4; --text: #1A1F26; --muted: #5B6573;
+  --line: #D6DBE2; --line-strong: #B4BCC7; --btn-on-bg: #1A1F26; --btn-on-fg: #FFFFFF;
+  --map-bg: #E9EDF1; --floor: #FAFBFC; --plan-line: #A7B0BB; --zone-outline: #7A8594; --zone-fill: #F1F3F6; --zone-fill-hi: #E2E7ED;
+  --wall: #5B6573; --rack: #CBD1D9; --rack-line: #8D97A4; --bench: #D9D2C6; --bench-line: #A39A8B; --dock: #7A8594;
+  --marker-outline: #1A1F26; --moving: #0072B2; --stationary: #009E73; --break: #6B7280; --lost: #9AA3AE;
+  --sos: #D55E00; --attention: #E69F00; --battery: #F0E442; --selection: #0072B2;
+  --ink-moving: #FFFFFF; --ink-stationary: #0D1117; --ink-break: #FFFFFF; --ink-sos: #0D1117; --on-attention: #1A1F26;
+  --sos-banner: #B54700; --sos-banner-text: #FFFFFF;
+  --trail: rgba(26, 31, 38, .35); --trail-sel: #0072B2; --halo: rgba(0, 114, 178, .12);
+  --pill: rgba(255, 255, 255, .9); --pill-border: #7A8594; --privacy: #8A93A0; --focus: #0072B2; --hl: rgba(0, 114, 178, .35);
+  --font-ui: "Segoe UI", Roboto, "Helvetica Neue", Arial, system-ui, sans-serif;
+  --font-num: "Cascadia Mono", Consolas, "Roboto Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --r-card: 12px; --r-ctl: 8px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0D1117; --surface: #161B22; --surface-2: #1C232D; --text: #E6EAF0; --muted: #9AA4B1;
+    --line: #29313C; --line-strong: #3A4453; --btn-on-bg: #E6EAF0; --btn-on-fg: #0D1117;
+    --map-bg: #0A0E13; --floor: #10151C; --plan-line: #3A4453; --zone-outline: #6E7A8A; --zone-fill: #131922; --zone-fill-hi: #1A2330;
+    --wall: #9AA4B1; --rack: #232B36; --rack-line: #4A5566; --bench: #2D2A25; --bench-line: #5E5648; --dock: #6E7A8A;
+    --marker-outline: #0D1117; --moving: #56B4E9; --stationary: #009E73; --break: #9AA4B1; --lost: #5B6573;
+    --sos: #D55E00; --attention: #E69F00; --battery: #F0E442; --selection: #FFFFFF;
+    --ink-moving: #0D1117; --ink-stationary: #0D1117; --ink-break: #0D1117; --ink-sos: #0D1117; --on-attention: #0D1117;
+    --sos-banner: #D55E00; --sos-banner-text: #0D1117;
+    --trail: rgba(230, 234, 240, .35); --trail-sel: #56B4E9; --halo: rgba(86, 180, 233, .16);
+    --pill: rgba(22, 27, 34, .92); --pill-border: #6E7A8A; --privacy: #6E7A8A; --focus: #56B4E9; --hl: rgba(86, 180, 233, .35);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0D1117; --surface: #161B22; --surface-2: #1C232D; --text: #E6EAF0; --muted: #9AA4B1;
+  --line: #29313C; --line-strong: #3A4453; --btn-on-bg: #E6EAF0; --btn-on-fg: #0D1117;
+  --map-bg: #0A0E13; --floor: #10151C; --plan-line: #3A4453; --zone-outline: #6E7A8A; --zone-fill: #131922; --zone-fill-hi: #1A2330;
+  --wall: #9AA4B1; --rack: #232B36; --rack-line: #4A5566; --bench: #2D2A25; --bench-line: #5E5648; --dock: #6E7A8A;
+  --marker-outline: #0D1117; --moving: #56B4E9; --stationary: #009E73; --break: #9AA4B1; --lost: #5B6573;
+  --sos: #D55E00; --attention: #E69F00; --battery: #F0E442; --selection: #FFFFFF;
+  --ink-moving: #0D1117; --ink-stationary: #0D1117; --ink-break: #0D1117; --ink-sos: #0D1117; --on-attention: #0D1117;
+  --sos-banner: #D55E00; --sos-banner-text: #0D1117;
+  --trail: rgba(230, 234, 240, .35); --trail-sel: #56B4E9; --halo: rgba(86, 180, 233, .16);
+  --pill: rgba(22, 27, 34, .92); --pill-border: #6E7A8A; --privacy: #6E7A8A; --focus: #56B4E9; --hl: rgba(86, 180, 233, .35);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.45 var(--font-ui);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 12px;
+  display: flex; flex-direction: column; gap: 10px;
+  overflow-x: hidden;
+}
+[hidden] { display: none !important; }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+
+/* ---------- Cabeçalho ---------- */
+.top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; }
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; margin-right: auto; }
+.brand svg { flex: none; }
+.brand h1 { margin: 0; font-size: 18px; line-height: 1.2; font-weight: 650; letter-spacing: -.01em; text-wrap: balance; }
+.brand p { margin: 0; font-size: 12px; color: var(--muted); }
+.live { display: inline-flex; align-items: center; gap: 8px; padding: 4px 11px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface); font-size: 12px; font-weight: 600; letter-spacing: .04em; white-space: nowrap; }
+.live .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--stationary); box-shadow: 0 0 0 2px var(--surface), 0 0 0 3px var(--stationary); }
+.live.paused .dot { background: var(--muted); box-shadow: 0 0 0 2px var(--surface), 0 0 0 3px var(--muted); }
+.clock { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.2; }
+.clock .num { font-size: 20px; font-weight: 600; }
+.clock small { font-size: 12px; color: var(--muted); }
+.ghost { border: 1px solid var(--line-strong); background: var(--surface); border-radius: var(--r-ctl); padding: 6px 11px; cursor: pointer; font-size: 13px; }
+.ghost:hover { background: var(--surface-2); }
+
+/* ---------- Banner SOS (P1) ---------- */
+.sos-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; background: var(--sos-banner); color: var(--sos-banner-text); border-radius: var(--r-card); padding: 10px 14px; }
+.sos-banner strong { font-size: 15px; letter-spacing: .03em; }
+.sos-banner .sos-text { flex: 1 1 260px; min-width: 0; }
+.sos-banner button { border: 1.5px solid currentColor; background: transparent; color: inherit; border-radius: var(--r-ctl); padding: 6px 12px; font-weight: 650; cursor: pointer; }
+.sos-banner button.primary { background: var(--sos-banner-text); color: var(--sos-banner); border-color: var(--sos-banner-text); }
+
+/* ---------- Barra de controles ---------- */
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+.group { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.glabel { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-right: 4px; font-weight: 600; }
+.seg { border: 1px solid var(--line-strong); background: var(--surface); border-radius: var(--r-ctl); padding: 5px 10px; cursor: pointer; font-size: 13px; line-height: 1.3; white-space: nowrap; }
+.seg:hover { background: var(--surface-2); }
+.seg[aria-pressed="true"] { background: var(--btn-on-bg); color: var(--btn-on-fg); border-color: var(--btn-on-bg); }
+.seg.warn { border-color: var(--sos); }
+select.seg { padding-right: 6px; }
+
+/* ---------- Área principal ---------- */
+.layout { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 340px; grid-template-rows: minmax(0, 1fr); gap: 12px; }
+.mapwrap { position: relative; min-height: 0; min-width: 0; border: 1px solid var(--line); border-radius: var(--r-card); overflow: hidden; background: var(--map-bg); }
+#map { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+#map.dragging { cursor: grabbing; }
+#map.pointer { cursor: pointer; }
+.mapctl { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 6px; }
+.mapctl button { width: 36px; height: 36px; border: 1px solid var(--line-strong); background: var(--surface); border-radius: var(--r-ctl); cursor: pointer; font-size: 18px; line-height: 1; display: grid; place-items: center; }
+.mapctl button.wide { font-size: 11px; font-weight: 600; height: auto; padding: 6px 0; }
+.mapctl button:hover { background: var(--surface-2); }
+.modechip { position: absolute; top: 10px; left: 10px; max-width: calc(100% - 70px); padding: 5px 10px; border-radius: 8px; background: var(--pill); border: 1px solid var(--line-strong); font-size: 12px; }
+.followchip { position: absolute; left: 50%; transform: translateX(-50%); bottom: 12px; padding: 6px 8px 6px 12px; border-radius: 999px; background: var(--btn-on-bg); color: var(--btn-on-fg); font-size: 13px; display: flex; align-items: center; gap: 8px; max-width: calc(100% - 24px); white-space: nowrap; overflow: hidden; }
+.followchip button { border: 0; border-radius: 999px; padding: 3px 10px; background: var(--btn-on-fg); color: var(--btn-on-bg); cursor: pointer; font-size: 12px; font-weight: 600; }
+.legend { position: absolute; left: 10px; bottom: 10px; max-width: min(560px, calc(100% - 20px)); background: var(--pill); border: 1px solid var(--line-strong); border-radius: 10px; padding: 6px 10px; font-size: 12px; }
+.legend summary { cursor: pointer; font-weight: 600; font-size: 12px; }
+.legend ul { list-style: none; margin: 6px 0 2px; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.legend li { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.heatleg { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.heatbar { width: 120px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, rgba(0,34,78,.15), #35456C, #666970, #A59C74, #FEE838); }
+
+/* ---------- Painel lateral ---------- */
+.side { min-height: 0; min-width: 0; display: flex; flex-direction: column; gap: 12px; overflow: auto; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-card); padding: 14px; min-width: 0; }
+.card h2 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 650; }
+.who { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.who h3 { margin: 0; font-size: 17px; line-height: 1.2; }
+.who p { margin: 0; font-size: 13px; color: var(--muted); }
+dl.kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 12px; margin: 0; font-size: 13px; }
+dl.kv dt { color: var(--muted); }
+dl.kv dd { margin: 0; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line-strong); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.chip.over { background: var(--sos-banner); color: var(--sos-banner-text); border-color: var(--sos-banner); }
+.chip.under, .chip.uncovered { border-color: var(--attention); }
+.chip.uncovered { background: var(--attention); color: var(--on-attention); }
+.crumbs { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
+.crumbs li { display: grid; grid-template-columns: 74px minmax(0, 1fr) auto; gap: 8px; padding: 3px 0; border-top: 1px solid var(--line); }
+.crumbs li:first-child { border-top: 0; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.note { margin: 10px 0 0; font-size: 12px; color: var(--muted); }
+.alerts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.alerts li button { width: 100%; text-align: left; display: flex; gap: 8px; align-items: flex-start; border: 1px solid var(--line); background: var(--surface-2); border-radius: var(--r-ctl); padding: 7px 9px; cursor: pointer; font-size: 13px; }
+.alerts .sev { flex: none; font-weight: 700; font-size: 11px; padding: 1px 6px; border-radius: 6px; border: 1px solid var(--line-strong); }
+.alerts .sev.p1 { background: var(--sos-banner); color: var(--sos-banner-text); border-color: var(--sos-banner); }
+.alerts .sev.p2 { border-color: var(--sos); }
+.alerts .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.alerts .zn { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.alerts .sev.p3 { background: var(--attention); color: var(--on-attention); border-color: var(--attention); }
+.summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; font-size: 13px; margin: 0 0 12px; }
+.summary div { display: flex; align-items: center; gap: 7px; }
+.summary b { margin-left: auto; font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+.listcard { display: flex; flex-direction: column; min-height: 220px; }
+.search { width: 100%; border: 1px solid var(--line-strong); background: var(--surface); border-radius: var(--r-ctl); padding: 6px 10px; margin-bottom: 8px; }
+#peopleList { list-style: none; margin: 0; padding: 0; overflow: auto; flex: 1; min-height: 0; }
+#peopleList button { width: 100%; display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 8px; border: 0; border-top: 1px solid var(--line); background: transparent; padding: 6px 2px; text-align: left; cursor: pointer; font-size: 13px; }
+#peopleList li:first-child button { border-top: 0; }
+#peopleList button:hover { background: var(--surface-2); }
+#peopleList button[aria-current="true"] { background: var(--surface-2); box-shadow: inset 3px 0 0 var(--selection); }
+#peopleList .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#peopleList .zn { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.foot { font-size: 12px; color: var(--muted); margin: 0; }
+.kbd { font-family: var(--font-num); font-size: 11px; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; }
+
+@media (max-width: 899px) {
+  html, body { height: auto; }
+  .layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; }
+  .mapwrap { height: 64vh; min-height: 340px; }
+  .side { overflow: visible; }
+  #peopleList { max-height: 420px; }
+  .clock { align-items: flex-start; }
+}
+@media (max-width: 520px) {
+  .brand h1 { font-size: 16px; }
+  .modechip { font-size: 11px; }
+  .legend { font-size: 11px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .seg, .ghost, .mapctl button { transition: background-color .1s cubic-bezier(.2, 0, 0, 1); }
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true">
+      <rect x="1" y="1" width="32" height="32" rx="8" style="fill:var(--btn-on-bg)"></rect>
+      <path d="M7 25V13l10-5 10 5v12" style="fill:none;stroke:var(--btn-on-fg);stroke-width:2;stroke-linejoin:round"></path>
+      <path d="M11 25v-7h12v7" style="fill:none;stroke:var(--btn-on-fg);stroke-width:2"></path>
+      <circle cx="17" cy="15" r="2.2" style="fill:var(--attention)"></circle>
+    </svg>
+    <div>
+      <h1>Mapa do Galpão</h1>
+      <p>CD fictício · térreo · 60 × 40 m · 12 gateways BLE no teto · dados simulados no navegador</p>
+    </div>
+  </div>
+  <div class="live" id="liveChip" role="status"><span class="dot" aria-hidden="true"></span><span id="liveText">AO VIVO · atraso ~1,4 s</span></div>
+  <div class="clock"><span class="num" id="clock">--:--:--</span><small id="presentTotal">—</small></div>
+  <button class="ghost" id="themeBtn" type="button">Tema: sistema</button>
+</header>
+
+<div class="sos-banner" id="sosBanner" role="alert" aria-live="assertive" hidden>
+  <div class="sos-text"><strong>SOS</strong> · <span id="sosText"></span></div>
+  <button type="button" id="sosGo">Ver no mapa</button>
+  <button type="button" id="sosAck" class="primary">Reconhecer</button>
+</div>
+
+<nav class="toolbar" aria-label="Controles do mapa">
+  <div class="group" role="group" aria-label="Modo de precisão">
+    <span class="glabel">Precisão</span>
+    <button type="button" class="seg" id="modeXY" aria-pressed="true">Modo X/Y</button>
+    <button type="button" class="seg" id="modeZone" aria-pressed="false">Modo zona</button>
+  </div>
+  <div class="group" role="group" aria-label="Camadas">
+    <span class="glabel">Camadas</span>
+    <button type="button" class="seg" id="layTrail" aria-pressed="true">Trilha do selecionado</button>
+    <button type="button" class="seg" id="layTrailAll" aria-pressed="false">Trilhas de todos</button>
+    <button type="button" class="seg" id="layHeat" aria-pressed="false">Mapa de calor</button>
+    <select class="seg" id="heatWin" aria-label="Janela do mapa de calor" hidden>
+      <option value="15">Últimos 15 min</option>
+      <option value="60">Última 1 h</option>
+      <option value="0" selected>Turno (desde 08:00)</option>
+    </select>
+    <button type="button" class="seg" id="layGw" aria-pressed="false">Gateways</button>
+  </div>
+  <div class="group" role="group" aria-label="Velocidade da simulação">
+    <span class="glabel">Simulação</span>
+    <button type="button" class="seg" id="spdPause" aria-pressed="false" title="Pausar (barra de espaço)">Pausar</button>
+    <button type="button" class="seg" data-speed="1" aria-pressed="true">1×</button>
+    <button type="button" class="seg" data-speed="5" aria-pressed="false">5×</button>
+    <button type="button" class="seg" data-speed="20" aria-pressed="false">20×</button>
+  </div>
+  <div class="group" role="group" aria-label="Acessibilidade e testes">
+    <button type="button" class="seg" id="motionBtn" aria-pressed="false">Movimento reduzido</button>
+    <button type="button" class="seg warn" id="sosBtn">Simular SOS</button>
+  </div>
+</nav>
+
+<main class="layout">
+  <section class="mapwrap" aria-label="Planta do galpão ao vivo">
+    <canvas id="map" tabindex="0" aria-label="Mapa de topo do galpão com a posição estimada dos funcionários. Use a lista Equipe no turno para navegar pelo teclado; + e − aproximam, setas movem, Home mostra tudo."></canvas>
+    <div class="modechip" id="modeChip">Modo X/Y · posição estimada ± 2,5 m (R95)</div>
+    <div class="mapctl">
+      <button type="button" id="zoomIn" aria-label="Aproximar">+</button>
+      <button type="button" id="zoomOut" aria-label="Afastar">−</button>
+      <button type="button" id="zoomFit" class="wide" aria-label="Ver o galpão inteiro">Tudo</button>
+    </div>
+    <div class="followchip" id="followChip" hidden><span id="followText"></span><button type="button" id="followBtn">Sair</button></div>
+    <details class="legend" id="legend" open>
+      <summary>Legenda</summary>
+      <ul>
+        <li><svg width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="5.5" style="fill:var(--moving);stroke:var(--marker-outline);stroke-width:1.2"></circle></svg>Em movimento</li>
+        <li><svg width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="5.5" style="fill:var(--stationary);stroke:var(--marker-outline);stroke-width:1.2"></circle></svg>Parado (no posto)</li>
+        <li><svg width="14" height="14" aria-hidden="true"><rect x="1.5" y="1.5" width="11" height="11" rx="3" style="fill:var(--break);stroke:var(--marker-outline);stroke-width:1.2"></rect></svg>Pausa</li>
+        <li><svg width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="5.5" style="fill:var(--stationary);opacity:.7;stroke:var(--text);stroke-width:1.2;stroke-dasharray:2.5 2"></circle></svg>Sinal fraco</li>
+        <li><svg width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="5" style="fill:none;stroke:var(--lost);stroke-width:1.8;stroke-dasharray:2.5 2"></circle><path d="M3 11 11 3" style="stroke:var(--lost);stroke-width:1.5"></path></svg>Sem sinal</li>
+        <li><svg width="16" height="16" aria-hidden="true"><path d="M8 1 15 8 8 15 1 8Z" style="fill:var(--sos);stroke:var(--marker-outline);stroke-width:1.2"></path></svg>SOS</li>
+        <li><svg width="16" height="12" aria-hidden="true"><rect x="1" y="1" width="14" height="10" rx="2" style="fill:var(--attention)"></rect></svg>Zona descoberta / abaixo do plano</li>
+      </ul>
+      <div class="heatleg" id="heatLegend" hidden><span>0</span><span class="heatbar" aria-hidden="true"></span><span id="heatUnit">30 pessoa-min/m²</span></div>
+    </details>
+  </section>
+
+  <aside class="side">
+    <section class="card" id="detail" aria-label="Detalhes"></section>
+    <section class="card listcard">
+      <h2>Equipe no turno</h2>
+      <input class="search" id="search" type="search" placeholder="Buscar nome ou função ( / )" aria-label="Buscar funcionário">
+      <ul id="peopleList"></ul>
+    </section>
+    <p class="foot">Protótipo de animação. Posições, nomes e eventos são fictícios. Banheiros e vestiário só mostram contagem agregada, com atraso de 60 s.</p>
+  </aside>
+</main>
+<script>
+'use strict';
+/* =============================================================================================
+   Mapa do Galpão — protótipo do mapa de topo ao vivo (RTLS BLE) — um único arquivo, sem build.
+   Segue a "Especificação de Animação e Visualização" (animacoes-spec.md, v1.0).
+
+   Módulos (cada um é um IIFE que expõe só o necessário):
+     0. U, EASE, MOTION, springStep .. utilidades, curvas Material 3, mola criticamente amortecida
+     1. LAYOUT ...................... planta em METROS (x à direita, y para baixo): zonas, obstáculos,
+                                      grafo de corredores, vagas (slots) do modo zona, gateways
+     2. ROUTER ...................... rotas plausíveis: reta na área livre ou caminho mínimo no grafo
+                                      (Floyd–Warshall + "puxar o barbante" + cantos arredondados)
+     3. SIM ......................... simulador: funcionários "verdadeiros" com roteiros por função e o
+                                      que seria o BACKEND (ruído, filtro, map-matching, privacidade,
+                                      perda de pacotes, SOS). Na implementação real vira o WebSocket rtls.v1.
+     4. FRONT ....................... posicionamento no navegador: buffer de interpolação (render em
+                                      agora − D), rota entre amostras, extrapolação curta, mola de correção,
+                                      teletransporte, sinal fraco/sem sinal, modo zona (vagas + trânsito),
+                                      contadores com debounce, trilhas, mapa de calor, alertas.
+     5. RENDER ...................... Canvas 2D: câmera (zoom/pan/seguir), camadas, LOD por px/m,
+                                      rótulos sem sobreposição (guloso, 8 candidatos, aderência).
+     6. UI .......................... controles, painel, lista acessível, banner SOS, laço rAF.
+   Na produção a spec recomenda PixiJS (WebGL); os módulos 1–4 e a lógica de 5 se reaproveitam.
+   ============================================================================================= */
+
+/* ============================== 0. UTILIDADES ============================== */
+function mulberry32(seed) {
+  return function () {
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const NF1 = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const NF2 = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const U = {
+  rng: mulberry32(20261017),                      // semente fixa: a simulação é determinística
+  clamp: (v, a, b) => (v < a ? a : v > b ? b : v),
+  lerp: (a, b, t) => a + (b - a) * t,
+  hyp: (x, y) => Math.sqrt(x * x + y * y),
+  rand(a, b) { return a + (b - a) * U.rng(); },
+  pick(arr) { return arr[Math.floor(U.rng() * arr.length)]; },
+  gauss() { let u = 0; while (u === 0) u = U.rng(); const v = U.rng(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); },
+  pad: (n) => String(n).padStart(2, '0'),
+  clock(sec) { sec = Math.floor(sec); return U.pad(Math.floor(sec / 3600) % 24) + ':' + U.pad(Math.floor(sec / 60) % 60) + ':' + U.pad(sec % 60); },
+  hm(sec) { sec = Math.floor(sec); return U.pad(Math.floor(sec / 3600) % 24) + ':' + U.pad(Math.floor(sec / 60) % 60); },
+  dur(sec) {                                      // "45 s", "12 min 30 s", "1 h 05 min"
+    sec = Math.max(0, Math.floor(sec));
+    if (sec < 60) return sec + ' s';
+    if (sec < 3600) return Math.floor(sec / 60) + ' min' + (sec < 600 ? ' ' + U.pad(sec % 60) + ' s' : '');
+    return Math.floor(sec / 3600) + ' h ' + U.pad(Math.floor(sec / 60) % 60) + ' min';
+  },
+  ago(sec) { return 'há ' + U.dur(sec); },
+  dist(m) { return m < 1000 ? Math.round(m) + ' m' : NF2.format(m / 1000) + ' km'; },
+  esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); },
+};
+
+/* Curvas de easing (Material 3, spec §9.3). Solver cúbico: Newton-Raphson com bisseção de reserva. */
+function cubicBezier(x1, y1, x2, y2) {
+  const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
+  const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+  const sx = (t) => ((ax * t + bx) * t + cx) * t;
+  const sy = (t) => ((ay * t + by) * t + cy) * t;
+  const dsx = (t) => (3 * ax * t + 2 * bx) * t + cx;
+  return function (x) {
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    let t = x;
+    for (let i = 0; i < 8; i++) {
+      const e = sx(t) - x;
+      if (Math.abs(e) < 1e-5) return sy(t);
+      const d = dsx(t);
+      if (Math.abs(d) < 1e-6) break;
+      t -= e / d;
+    }
+    let lo = 0, hi = 1; t = x;
+    for (let i = 0; i < 30; i++) {
+      const v = sx(t);
+      if (Math.abs(v - x) < 1e-5) break;
+      if (v < x) lo = t; else hi = t;
+      t = (lo + hi) / 2;
+    }
+    return sy(t);
+  };
+}
+const EASE = {
+  standard: cubicBezier(0.2, 0, 0, 1),            // UI e trânsito entre zonas
+  emphDec: cubicBezier(0.05, 0.7, 0.1, 1),        // elementos entrando (número novo, fade-in)
+  emphAcc: cubicBezier(0.3, 0, 0.8, 0.15),        // elementos saindo
+  linear: (t) => t,                               // posição no modo X/Y (velocidade verdadeira)
+};
+/* Tokens de duração em ms (spec §9.2). */
+const MOTION = { micro: 100, fast: 150, base: 200, medium: 250, moderate: 300, slow: 500, slower: 600 };
+
+/* Mola criticamente amortecida, solução exata e independente de fps (spec Apêndice B.3).
+   s = {x, y, vx, vy}; alvo (tx, ty); dt em segundos; omega em 1/s. */
+function springStep(s, tx, ty, dt, omega) {
+  if (dt <= 0) return;
+  const e = Math.exp(-omega * dt);
+  const x0 = s.x - tx, y0 = s.y - ty;
+  const cx = s.vx + omega * x0, cy = s.vy + omega * y0;
+  s.x = tx + (x0 + cx * dt) * e; s.y = ty + (y0 + cy * dt) * e;
+  s.vx = (s.vx - omega * cx * dt) * e; s.vy = (s.vy - omega * cy * dt) * e;
+}
+const omegaFromSettle95 = (sec) => 4.744 / sec;   // 0,4 s → 11,86 1/s
+
+/* ============================== 1. LAYOUT (planta em metros) ============================== */
+const LAYOUT = (() => {
+  const W = 60, H = 40;
+  /* Zonas: r = [x0, y0, x1, y1]. planned = planejado do turno (viria da escala/WMS); capacity = lotação.
+     support = área de apoio (sem planejado). privacy = zona de privacidade (só contagem agregada). */
+  const zones = [
+    { id: 'rec',  name: 'Recebimento',            short: 'Receb.',     r: [0, 0, 12, 10],     planned: 3, capacity: 6 },
+    { id: 'dev',  name: 'Devoluções',             short: 'Devol.',     r: [0, 10.5, 12, 18],  planned: 1, capacity: 3 },
+    { id: 'ref',  name: 'Refeitório',             short: 'Refeit.',    r: [0, 19, 12, 30.5],  planned: null, capacity: 16, support: true },
+    { id: 'wc',   name: 'Banheiros / Vestiário',  short: 'WC / Vest.', r: [0, 33.5, 10, 40],  privacy: true },
+    { id: 'arm',  name: 'Armazenagem',            short: 'Armaz.',     r: [14, 0, 30.2, 21],  planned: 3, capacity: 8, aisles: true },
+    { id: 'pick', name: 'Coleta / Picking',       short: 'Picking',    r: [30.2, 0, 44, 21],  planned: 5, capacity: 9, aisles: true },
+    { id: 'alm',  name: 'Almoxarifado de insumos', short: 'Almox.',    r: [46, 0, 60, 8],     planned: null, capacity: 4, support: true },
+    { id: 'esc',  name: 'Escritório',             short: 'Escrit.',    r: [46, 9, 60, 16],    planned: null, capacity: 6, support: true },
+    { id: 'conf', name: 'Conferência',            short: 'Confer.',    r: [14, 25, 29, 37],   planned: 3, capacity: 6 },
+    { id: 'pack', name: 'Empacotamento',          short: 'Packing',    r: [30, 25, 45, 37],   planned: 6, capacity: 9 },
+    { id: 'exp',  name: 'Expedição',              short: 'Exped.',     r: [47, 18, 60, 40],   planned: 3, capacity: 6 },
+  ];
+  zones.forEach((z, i) => {
+    z.idx = i;
+    z.cx = (z.r[0] + z.r[2]) / 2; z.cy = (z.r[1] + z.r[3]) / 2;
+    z.w = z.r[2] - z.r[0]; z.h = z.r[3] - z.r[1]; z.area = z.w * z.h;
+  });
+  const zoneById = Object.fromEntries(zones.map((z) => [z.id, z]));
+  const Z = zoneById;
+
+  /* Obstáculos (estantes, bancadas, mesas, paredes). Ninguém é desenhado atravessando estes retângulos. */
+  const obstacles = [];
+  const ob = (x0, y0, x1, y1, kind, label) => obstacles.push({ r: [x0, y0, x1, y1], kind, label });
+  // Corredores das estantes (linhas de centro) e estantes entre eles (porta-paletes de 1,6 m)
+  const AISLES = [];
+  for (let i = 0; i < 9; i++) AISLES.push(Math.round((14.9 + 3.4 * i) * 100) / 100);
+  const RACK_IDS = 'ABCDEFGH';
+  for (let i = 0; i < 8; i++) { const cx = (AISLES[i] + AISLES[i + 1]) / 2; ob(cx - 0.8, 3, cx + 0.8, 18, 'rack', 'Rua ' + RACK_IDS[i]); }
+  // Empacotamento: 6 bancadas (2 filas) + mesa de entrada + prateleira de saída (pedidos embalados)
+  const BENCH_X = [33.5, 37.5, 41.5];
+  Z.pack.ws = [];
+  BENCH_X.forEach((x, i) => { ob(x - 1.5, 28, x + 1.5, 29.2, 'bench', 'B0' + (i + 1)); Z.pack.ws.push({ id: 'B0' + (i + 1), x, y: 27.2 }); });
+  BENCH_X.forEach((x, i) => { ob(x - 1.5, 33, x + 1.5, 34.2, 'bench', 'B0' + (i + 4)); Z.pack.ws.push({ id: 'B0' + (i + 4), x, y: 32.2 }); });
+  ob(30.2, 28, 30.8, 33, 'table', 'Entrada');
+  ob(36, 36.2, 44, 36.8, 'shelf', 'Saída');
+  // Conferência: 3 mesas com posto
+  Z.conf.ws = [{ id: 'C01', x: 17.75, y: 28.2 }, { id: 'C02', x: 22.75, y: 28.2 }, { id: 'C03', x: 17.75, y: 32.2 }];
+  ob(16, 29, 19.5, 30.2, 'bench', 'C01'); ob(21, 29, 24.5, 30.2, 'bench', 'C02'); ob(16, 33, 19.5, 34.2, 'bench', 'C03');
+  // Devoluções: mesa de triagem
+  Z.dev.ws = [{ id: 'D01', x: 5, y: 12.4 }];
+  ob(3, 13.2, 7, 14.2, 'bench', 'D01');
+  // Almoxarifado: 2 prateleiras (caixas, fitas, plástico-bolha)
+  ob(48, 1.6, 58.5, 2.6, 'shelf', 'Caixas'); ob(48, 5.4, 58.5, 6.4, 'shelf', 'Fitas e bolha');
+  // Paredes do banheiro/vestiário (porta em y 36–38) e do escritório (porta em y 12–13,6)
+  ob(0, 33.3, 10, 33.5, 'wall'); ob(9.8, 33.5, 10, 36, 'wall'); ob(9.8, 38, 10, 40, 'wall'); ob(4.9, 33.5, 5.1, 36.5, 'wall');
+  ob(46, 9, 60, 9.2, 'wall'); ob(46, 15.8, 60, 16, 'wall'); ob(46, 9.2, 46.2, 12, 'wall'); ob(46, 13.6, 46.2, 15.8, 'wall');
+
+  /* ---------- geometria ---------- */
+  const PAD = 0.3;                                 // folga do corpo da pessoa em relação aos obstáculos
+  function segHitsRect(ax, ay, bx, by, x0, y0, x1, y1) {   // Liang–Barsky
+    let t0 = 0, t1 = 1;
+    const dx = bx - ax, dy = by - ay;
+    const P = [-dx, dx, -dy, dy], Q = [ax - x0, x1 - ax, ay - y0, y1 - ay];
+    for (let i = 0; i < 4; i++) {
+      if (P[i] === 0) { if (Q[i] < 0) return false; }
+      else {
+        const t = Q[i] / P[i];
+        if (P[i] < 0) { if (t > t1) return false; if (t > t0) t0 = t; }
+        else { if (t < t0) return false; if (t < t1) t1 = t; }
+      }
+    }
+    return true;
+  }
+  function segmentFree(ax, ay, bx, by, pad = PAD) {
+    for (let i = 0; i < obstacles.length; i++) {
+      const r = obstacles[i].r;
+      if (segHitsRect(ax, ay, bx, by, r[0] - pad, r[1] - pad, r[2] + pad, r[3] + pad)) return false;
+    }
+    return true;
+  }
+  function pointClear(x, y, c = 0.15) {
+    if (x < 0.2 || y < 0.2 || x > W - 0.2 || y > H - 0.2) return false;
+    for (let i = 0; i < obstacles.length; i++) {
+      const r = obstacles[i].r;
+      if (x > r[0] - c && x < r[2] + c && y > r[1] - c && y < r[3] + c) return false;
+    }
+    return true;
+  }
+  const inRect = (x, y, r) => x >= r[0] && x <= r[2] && y >= r[1] && y <= r[3];
+  function zoneAt(x, y) { for (const z of zones) if (inRect(x, y, z.r)) return z.id; return null; }
+  function distToRect(x, y, r) { const dx = Math.max(r[0] - x, 0, x - r[2]), dy = Math.max(r[1] - y, 0, y - r[3]); return U.hyp(dx, dy); }
+  const PRIV_HALO = 3;                             // halo de 3 m em volta da zona privada (spec §6.7)
+  const privZones = zones.filter((z) => z.privacy);
+  function inPrivHalo(x, y) { for (const z of privZones) if (distToRect(x, y, z.r) < PRIV_HALO) return true; return false; }
+  /* Empurra um ponto que caiu no halo (por ruído ou curva de rota) para a borda externa do halo.
+     Devolve null se o ponto está dentro da zona privada ou se a borda não é área livre. */
+  function pushOutOfPriv(x, y) {
+    for (const z of privZones) {
+      const r = z.r, qx = U.clamp(x, r[0], r[2]), qy = U.clamp(y, r[1], r[3]), dx = x - qx, dy = y - qy, d = U.hyp(dx, dy);
+      if (d >= PRIV_HALO) continue;
+      if (d < 1e-6) return null;
+      const f = (PRIV_HALO + 0.02) / d; x = qx + dx * f; y = qy + dy * f;
+    }
+    return pointClear(x, y, 0.1) ? { x, y } : null;
+  }
+
+  /* ---------- grafo de corredores (nós em cruzamentos e bocas, arestas nas linhas de centro) ---------- */
+  const nodes = [], edges = [];
+  const N = (x, y) => { nodes.push({ x, y }); return nodes.length - 1; };
+  const E = (a, b) => edges.push([a, b]);
+  const chain = (ids) => { for (let i = 1; i < ids.length; i++) E(ids[i - 1], ids[i]); };
+  const STOP_Y = [1.5, 4.5, 8, 11.5, 15, 19.8];
+  const aisleNodes = AISLES.map((x) => { const ids = STOP_Y.map((y) => N(x, y)); chain(ids); return ids; });
+  const L = [1.5, 5, 14, 19.8, 23, 24.6, 30.5, 37, 38.6].map((y) => N(13, y)); chain(L);        // corredor x = 13
+  const R = [1.5, 4, 12.7, 19.8, 23, 30.2, 38.6].map((y) => N(45.5, y)); chain(R);              // corredor x = 45,5
+  chain([L[0], ...aisleNodes.map((a) => a[0]), R[0]]);                                           // travessa superior
+  chain([L[3], ...aisleNodes.map((a) => a[5]), R[3]]);                                           // travessa inferior
+  const mainIds = AISLES.map((x) => N(x, 23));
+  chain([L[4], ...mainIds, R[4]]);                                                               // corredor principal y = 23
+  aisleNodes.forEach((a, i) => E(a[5], mainIds[i]));
+  const bot = [21.7, 29.5, 37.5].map((x) => N(x, 38.6)); chain([L[8], ...bot, R[6]]);            // corredor do fundo
+  // portais das zonas (boca de corredor / porta) — usados no trânsito do modo zona
+  Z.rec.portal = L[1]; Z.dev.portal = L[2]; Z.ref.portal = L[5];
+  const wcOut = N(11.2, 37), wcIn = N(8.4, 37); E(L[7], wcOut); E(wcOut, wcIn); Z.wc.portal = wcIn;
+  Z.arm.portal = aisleNodes[2][5]; Z.pick.portal = aisleNodes[6][5];
+  const almIn = N(47.3, 4), almMid = N(53, 4); E(R[1], almIn); E(almIn, almMid); Z.alm.portal = almIn;
+  const escIn = N(47.4, 12.8); E(R[2], escIn); Z.esc.portal = escIn;
+  // Conferência
+  const cE = N(21.7, 25.9); E(mainIds[2], cE);
+  const c1 = N(15.2, 26.8), c2 = N(21.7, 26.8), c3 = N(27.8, 26.8), c4 = N(15.2, 31.6), c5 = N(27.8, 31.6), c6 = N(27.8, 35.8), c7 = N(15.2, 35.8);
+  E(cE, c2); chain([c1, c2, c3]); E(c1, c4); E(c3, c5); E(c4, c5); E(c5, c6); E(c4, c7); E(c7, c6); E(c6, bot[1]);
+  Z.conf.portal = cE;
+  // Empacotamento (3 vias entre as filas de bancadas)
+  const pE = N(35.3, 26.3); E(mainIds[6], pE);
+  const p1 = N(31.4, 26.3), p3 = N(44.2, 26.3), p4 = N(31.4, 30.8), p5 = N(44.2, 30.8), p6 = N(31.4, 35.5), p7 = N(44.2, 35.5);
+  chain([p1, pE, p3]); chain([p1, p4, p6]); chain([p3, p5, p7]); E(p4, p5); E(p6, p7); E(p6, c6); E(p6, bot[1]); E(p5, R[5]);
+  Z.pack.portal = pE;
+  // Expedição (área aberta com docas na parede leste)
+  const x1 = N(48, 23), x2 = N(48, 30.2), x3 = N(48, 38.6); E(R[4], x1); E(R[5], x2); E(R[6], x3); chain([x1, x2, x3]);
+  Z.exp.portal = x2;
+
+  /* Caminhos mínimos pré-computados: Floyd–Warshall com matriz de próximo salto (spec §3.9). */
+  const n = nodes.length;
+  const dist = new Float64Array(n * n).fill(Infinity);
+  const next = new Int16Array(n * n).fill(-1);
+  for (let i = 0; i < n; i++) { dist[i * n + i] = 0; next[i * n + i] = i; }
+  for (const [a, b] of edges) {
+    const d = U.hyp(nodes[a].x - nodes[b].x, nodes[a].y - nodes[b].y);
+    dist[a * n + b] = dist[b * n + a] = d; next[a * n + b] = b; next[b * n + a] = a;
+  }
+  for (let k = 0; k < n; k++) for (let i = 0; i < n; i++) {
+    const dik = dist[i * n + k]; if (dik === Infinity) continue;
+    for (let j = 0; j < n; j++) {
+      const d = dik + dist[k * n + j];
+      if (d < dist[i * n + j]) { dist[i * n + j] = d; next[i * n + j] = next[i * n + k]; }
+    }
+  }
+  function path(i, j) {
+    if (next[i * n + j] < 0) return null;
+    const out = [i];
+    while (i !== j) { i = next[i * n + j]; out.push(i); }
+    return out;
+  }
+  // checagem de sanidade do grafo (aparece no console se alguém editar a planta e quebrar a malha)
+  for (const [a, b] of edges) if (!segmentFree(nodes[a].x, nodes[a].y, nodes[b].x, nodes[b].y)) console.warn('Aresta atravessa obstáculo:', a, b, nodes[a], nodes[b]);
+  for (let j = 1; j < n; j++) if (next[j] < 0) console.warn('Nó desconectado:', j, nodes[j]);
+
+  /* ---------- vagas (slots) do modo zona — spec §4.1 ---------- */
+  function buildSlots(z) {
+    const slots = [];
+    (z.ws || []).forEach((w) => slots.push({ x: w.x, y: w.y, ws: w.id, occ: null }));
+    const anchor = { x: z.cx, y: z.cy };
+    const extra = [];
+    if (z.aisles) {                                 // zona longa e estreita: vagas na linha de centro dos corredores
+      for (const ax of AISLES) {
+        if (ax < z.r[0] + 0.4 || ax > z.r[2] - 0.4) continue;
+        for (let y = 4.2; y <= 17.2; y += 1.6) extra.push({ x: ax, y, occ: null });
+      }
+    } else {                                        // zona genérica: grade hexagonal recortada, recuo 0,8 m
+      const sp = 1.5, dy = sp * Math.sqrt(3) / 2;
+      for (let row = 0, y = z.r[1] + 0.8; y <= z.r[3] - 0.8; y += dy, row++) {
+        for (let x = z.r[0] + 0.8 + (row % 2) * sp / 2; x <= z.r[2] - 0.8; x += sp) {
+          if (!pointClear(x, y, 0.55) || inPrivHalo(x, y)) continue;
+          if (slots.some((s) => U.hyp(s.x - x, s.y - y) < 1.2)) continue;
+          if (!nodes.some((nd) => U.hyp(nd.x - x, nd.y - y) < 14 && segmentFree(nd.x, nd.y, x, y))) continue;
+          extra.push({ x, y, occ: null });
+        }
+      }
+    }
+    extra.sort((a, b) => U.hyp(a.x - anchor.x, a.y - anchor.y) - U.hyp(b.x - anchor.x, b.y - anchor.y));
+    return slots.concat(extra);
+  }
+  zones.forEach((z) => { z.slots = z.privacy ? [] : buildSlots(z); });
+
+  /* Gateways BLE no teto (grade 4 × 3). Com 1 gateway só haveria modo PRESENÇA (spec §1). */
+  const gateways = [];
+  for (let j = 0; j < 3; j++) for (let i = 0; i < 4; i++) gateways.push({ id: 'GW-' + U.pad(j * 4 + i + 1), x: 7.5 + 15 * i, y: 6.5 + 13.5 * j });
+
+  /* Elementos só de desenho (não bloqueiam): portas de doca, mesas do refeitório, demarcações de piso. */
+  const decor = {
+    recDocks: [2.5, 6, 9.5],                        // portas no lado norte do recebimento
+    expDocks: [21, 25, 29, 33, 37],                 // docas na parede leste
+    refTables: [[2, 21, 5, 22.4], [7, 21, 10, 22.4], [2, 24.6, 5, 26], [7, 24.6, 10, 26], [2, 28.2, 5, 29.4], [7, 28.2, 10, 29.4]],
+    deskTables: [[50, 10.4, 53, 11.4], [55, 10.4, 58, 11.4], [50, 13.6, 53, 14.6], [55, 13.6, 58, 14.6]],
+    stages: [[2, 4, 10, 8.6, 'Pátio de conferência de entrada'], [53, 19.5, 59.4, 39, 'Pré-carga']],
+  };
+
+  return { W, H, zones, zoneById, obstacles, nodes, edges, AISLES, path, segmentFree, pointClear, zoneAt, inPrivHalo, pushOutOfPriv, distToRect, gateways, decor, PRIV_HALO };
+})();
+
+/* ============================== 2. ROUTER (rotas plausíveis) ============================== */
+const ROUTER = (() => {
+  const { nodes } = LAYOUT;
+  const order = nodes.map((_, i) => i);
+  const dtmp = new Float64Array(nodes.length);
+  /* Nó mais próximo com linha de visada livre (spec §3.9, fallback do front). */
+  function nearestVisibleNode(x, y) {
+    for (let i = 0; i < nodes.length; i++) dtmp[i] = U.hyp(nodes[i].x - x, nodes[i].y - y);
+    order.sort((a, b) => dtmp[a] - dtmp[b]);
+    for (let k = 0; k < Math.min(18, order.length); k++) {
+      const i = order[k];
+      if (LAYOUT.segmentFree(x, y, nodes[i].x, nodes[i].y, 0.05)) return i;
+    }
+    return order[0];
+  }
+  function build(pts) {                            // pts = [x0, y0, x1, y1, ...] → rota com comprimento acumulado
+    const m = pts.length / 2, cum = new Float64Array(m);
+    for (let i = 1; i < m; i++) cum[i] = cum[i - 1] + U.hyp(pts[2 * i] - pts[2 * i - 2], pts[2 * i + 1] - pts[2 * i - 1]);
+    return { pts, cum, len: cum[m - 1] };
+  }
+  /* Arredonda cantos com filete de raio ≤ 0,8 m (evita curvas robóticas de 90°). */
+  function roundCorners(P) {
+    if (P.length < 3) return P;
+    const out = [P[0]];
+    for (let i = 1; i < P.length - 1; i++) {
+      const a = P[i - 1], b = P[i], c = P[i + 1];
+      const l1 = U.hyp(b.x - a.x, b.y - a.y), l2 = U.hyp(c.x - b.x, c.y - b.y);
+      const r = Math.min(0.8, l1 / 2, l2 / 2);
+      if (r < 0.05) { out.push(b); continue; }
+      const A = { x: b.x - (b.x - a.x) / l1 * r, y: b.y - (b.y - a.y) / l1 * r };
+      const C = { x: b.x + (c.x - b.x) / l2 * r, y: b.y + (c.y - b.y) / l2 * r };
+      out.push(A);
+      for (const t of [0.25, 0.5, 0.75]) {         // Bézier quadrática A → b → C
+        const u = 1 - t;
+        out.push({ x: u * u * A.x + 2 * u * t * b.x + t * t * C.x, y: u * u * A.y + 2 * u * t * b.y + t * t * C.y });
+      }
+      out.push(C);
+    }
+    out.push(P[P.length - 1]);
+    return out;
+  }
+  /* Rota de A até B: reta se a área estiver livre; senão, caminho mínimo no grafo + atalhos visíveis. */
+  function route(ax, ay, bx, by) {
+    if (LAYOUT.segmentFree(ax, ay, bx, by, 0.05)) return build([ax, ay, bx, by]);   // folga mínima: ponto colado a uma bancada não vira desvio
+    const na = nearestVisibleNode(ax, ay), nb = nearestVisibleNode(bx, by);
+    const p = LAYOUT.path(na, nb);
+    if (!p) return build([ax, ay, bx, by]);
+    const P = [{ x: ax, y: ay }, ...p.map((i) => nodes[i]), { x: bx, y: by }];
+    // "puxar o barbante": do ponto atual, pula para o vértice visível mais distante
+    const pulled = [P[0]];
+    let i = 0;
+    while (i < P.length - 1) {
+      let j = P.length - 1;
+      while (j > i + 1 && !LAYOUT.segmentFree(P[i].x, P[i].y, P[j].x, P[j].y, 0.25)) j--;
+      pulled.push(P[j]); i = j;
+    }
+    const rc = roundCorners(pulled);
+    const flat = [];
+    rc.forEach((q) => flat.push(q.x, q.y));
+    return build(flat);
+  }
+  /* Ponto a s metros ao longo da rota (velocidade constante → velocidade exibida verdadeira). */
+  function pointAt(r, s, out) {
+    const m = r.cum.length;
+    if (m < 2 || s <= 0) { out.x = r.pts[0]; out.y = r.pts[1]; segDir(r, 1, out); return out; }
+    if (s >= r.len) { out.x = r.pts[2 * m - 2]; out.y = r.pts[2 * m - 1]; segDir(r, m - 1, out); return out; }
+    let i = 1;
+    while (i < m - 1 && r.cum[i] < s) i++;
+    const seg = r.cum[i] - r.cum[i - 1], u = seg > 0 ? (s - r.cum[i - 1]) / seg : 0;
+    out.x = r.pts[2 * i - 2] + (r.pts[2 * i] - r.pts[2 * i - 2]) * u;
+    out.y = r.pts[2 * i - 1] + (r.pts[2 * i + 1] - r.pts[2 * i - 1]) * u;
+    segDir(r, i, out);
+    return out;
+  }
+  function segDir(r, i, out) {
+    if (r.cum.length < 2) { out.dx = 0; out.dy = 0; return; }
+    const dx = r.pts[2 * i] - r.pts[2 * i - 2], dy = r.pts[2 * i + 1] - r.pts[2 * i - 1], l = U.hyp(dx, dy) || 1;
+    out.dx = dx / l; out.dy = dy / l;
+  }
+  return { route, pointAt, nearestVisibleNode };
+})();
+
+/* ============================== 3. SIM (funcionários + backend simulado) ==============================
+   Tudo aqui faria parte do servidor na implementação real. O front só enxerga as AMOSTRAS publicadas:
+   { pid, t (instante da medição), x, y, acc (R95), zone, zz (zona com histerese), spd, still, brk, sos, priv }.
+   Tempo em segundos do dia (relógio do servidor). */
+const SIM = (() => {
+  const DAY_START = 8 * 3600;                      // início do turno 08:00
+  const VIEW_START = 9 * 3600 + 30 * 60;           // o protótipo abre às 09:30 (pré-aquecido desde 08:00)
+  const RATE = 1;                                  // taxa publicada: 1 Hz por pessoa
+  const LOSS = 0.03;                               // 3% de perda de pacotes
+  const SIGMA = 1.0;                               // ruído bruto de posição (m, 1σ) antes do filtro
+
+  const ROLE = {
+    coletor: ['Coletor', 'Coletora'], embalador: ['Embalador', 'Embaladora'], conferente: ['Conferente', 'Conferente'],
+    expedidor: ['Expedidor', 'Expedidora'], recebedor: ['Recebedor', 'Recebedora'], lider: ['Líder de turno', 'Líder de turno'],
+  };
+  /* nome, função, base (área/posto), feminino, nome curto preferido (opcional) */
+  const ROSTER = [
+    ['Rafael Souza', 'coletor', 'pick', 0], ['Juliana Alves', 'coletor', 'pick', 1], ['Bruno Ferreira', 'coletor', 'arm', 0],
+    ['Camila Rocha', 'coletor', 'pick', 1], ['Thiago Lima', 'coletor', 'pick', 0], ['Larissa Gomes', 'coletor', 'arm', 1],
+    ['Igor Batista', 'coletor', 'pick', 0],
+    ['Ana Paula Ribeiro', 'embalador', 'B01', 1, 'Ana Paula'], ['Marcos Oliveira', 'embalador', 'B02', 0], ['Fernanda Costa', 'embalador', 'B03', 1],
+    ['Lucas Martins', 'embalador', 'B04', 0], ['Beatriz Santos', 'embalador', 'B05', 1], ['Gabriel Araújo', 'embalador', 'B06', 0],
+    ['Vanessa Carvalho', 'conferente', 'C01', 1], ['Rodrigo Pereira', 'conferente', 'C02', 0], ['Aline Nascimento', 'conferente', 'C03', 1],
+    ['Felipe Cardoso', 'expedidor', 'exp', 0], ['Renata Dias', 'expedidor', 'exp', 1], ['Eduardo Teixeira', 'expedidor', 'exp', 0],
+    ['Diego Moreira', 'recebedor', 'rec', 0], ['Sabrina Freitas', 'recebedor', 'rec', 1], ['João Victor Pinto', 'recebedor', 'rec', 0, 'João Victor'],
+    ['Patrícia Ramos', 'recebedor', 'dev', 1],
+    ['Cláudia Monteiro', 'lider', 'all', 1], ['Sérgio Almeida', 'lider', 'all', 0],
+  ];
+  const Z = LAYOUT.zoneById, AIS = LAYOUT.AISLES;
+  const wsPos = {};
+  LAYOUT.zones.forEach((z) => (z.ws || []).forEach((w) => (wsPos[w.id] = w)));
+
+  /* Pontos de trabalho (todos em área livre). */
+  const SP = {
+    aisle(area) { const i = area === 'arm' ? U.pick([0, 1, 2, 3, 4]) : U.pick([5, 6, 7, 8]); return { x: AIS[i], y: U.rand(3.8, 17.2) }; },
+    confDrop: () => ({ x: U.rand(25.6, 27.6), y: U.rand(26.4, 27.8) }),
+    confOut: () => ({ x: 28.2, y: U.rand(29.2, 33) }),
+    packIn: () => ({ x: 31.5, y: U.rand(29.3, 32.4) }),
+    packOut: () => ({ x: U.rand(37, 43), y: 35.5 }),
+    almBox: () => ({ x: U.rand(49, 57.5), y: U.rand(3.6, 4.4) }),
+    dock: () => { const y = U.pick(LAYOUT.decor.expDocks); return { x: U.rand(54, 58.8), y: y + U.rand(-1, 1) }; },
+    recDock: () => ({ x: U.pick(LAYOUT.decor.recDocks) + U.rand(-0.6, 0.6), y: U.rand(1.2, 2.4) }),
+    recStage: () => ({ x: U.rand(2, 10), y: U.rand(4.2, 8.4) }),
+    office: () => ({ x: U.rand(49.5, 58.5), y: U.pick([9.9, 12.4, 13, 15.1]) }),
+    wc: () => ({ x: U.rand(1.5, 8), y: U.rand(37.3, 39.3) }),
+    leader: () => U.pick([
+      () => ({ x: U.rand(3, 10), y: U.rand(3, 8) }), () => ({ x: U.pick(AIS), y: U.rand(5, 16) }), () => ({ x: U.rand(20, 27), y: 26.8 }),
+      () => ({ x: U.rand(32, 43), y: 30.8 }), () => ({ x: U.rand(50, 57), y: U.rand(20, 37) }), () => ({ x: 6, y: 16.5 }),
+    ])(),
+  };
+  const seats = [];
+  LAYOUT.decor.refTables.forEach((t) => { seats.push({ x: t[0] + 0.7, y: t[1] - 0.5 }, { x: t[2] - 0.7, y: t[1] - 0.5 }, { x: t[0] + 0.7, y: t[3] + 0.5 }, { x: t[2] - 0.7, y: t[3] + 0.5 }); });
+
+  const agents = [];
+  ROSTER.forEach((r, i) => {
+    const [name, role, base, fem, shortPref] = r;
+    const parts = name.split(' ');
+    const a = {
+      id: 'p_' + (0x1a2b + i * 97).toString(16), idx: i, name, role, base, fem: !!fem,
+      roleLabel: ROLE[role][fem ? 1 : 0], short: shortPref || parts[0], initials: (parts[0][0] + parts[parts.length - 1][0]).toUpperCase(),
+      beacon: 'BLE-' + (0xC40 + i * 37).toString(16).toUpperCase(),
+      speed: U.rand(1.15, 1.4), vehicle: role === 'recebedor' && base === 'rec',
+      x: 0, y: 0, hx: 1, hy: 0, q: [], cur: null, lastMoveT: DAY_START,
+      // pausa programada (15 min) escalonada entre 08:35 e 10:35; Patrícia sai às ~09:26 (gera "zona descoberta")
+      breakAt: DAY_START + 35 * 60 + i * 288 + U.rand(-60, 60), breakDone: false,
+      nextWc: DAY_START + U.rand(20 * 60, 140 * 60),
+      seat: seats[i % seats.length],
+      battery: Math.round(U.rand(38, 97)), sos: null,
+      est: { x: 0, y: 0, vx: 0, vy: 0, init: false, tl: 0 },
+      nextSample: DAY_START + U.rng() * RATE, lastZz: null, dropouts: [],
+    };
+    agents.push(a);
+  });
+  const byId = Object.fromEntries(agents.map((a) => [a.id, a]));
+  const find = (first) => agents.find((a) => a.name.startsWith(first));
+  find('Patrícia').breakAt = 9 * 3600 + 24 * 60;
+  // Diego: crachá com bateria fraca e falhas de sinal (demonstra "sinal fraco", "sem sinal" e teletransporte)
+  const diego = find('Diego');
+  diego.battery = 11;
+  diego.dropouts.push([VIEW_START + 40, VIEW_START + 86], [VIEW_START + 300, VIEW_START + 314]);
+  for (let t = VIEW_START + 520; t < VIEW_START + 4 * 3600; t += U.rand(260, 420)) diego.dropouts.push([t, t + U.rand(6, 48)]);
+
+  // posição inicial: no posto de cada um
+  agents.forEach((a) => {
+    const p = homePoint(a);
+    a.x = p.x; a.y = p.y;
+  });
+  function homePoint(a) {
+    if (wsPos[a.base]) return { x: wsPos[a.base].x, y: wsPos[a.base].y };
+    if (a.role === 'coletor') return SP.aisle(a.base);
+    if (a.base === 'rec') return SP.recStage();
+    if (a.base === 'dev') return { x: 5, y: 12.4 };
+    if (a.role === 'expedidor') return SP.dock();
+    return SP.office();
+  }
+
+  /* ---------- roteiros por função ---------- */
+  const go = (a, p, v) => ({ k: 'go', to: p, v: v || a.speed });
+  const wait = (dur, label, opt) => Object.assign({ k: 'wait', dur, label }, opt || {});
+  function plan(a) {
+    const q = a.q;
+    switch (a.role) {
+      case 'coletor': {
+        const n = 2 + Math.floor(U.rng() * 3);
+        for (let i = 0; i < n; i++) q.push(go(a, SP.aisle(U.rng() < 0.75 ? a.base : (a.base === 'arm' ? 'pick' : 'arm'))), wait(U.rand(6, 18), 'Coletando'));
+        q.push(go(a, SP.confDrop()), wait(U.rand(8, 14), 'Entregando na conferência'));
+        break;
+      }
+      case 'embalador': {
+        q.push(go(a, wsPos[a.base]), wait(U.rand(90, 240), 'Embalando', { cut: true }));
+        const r = U.rng();
+        if (r < 0.22) q.push(go(a, SP.confOut()), wait(U.rand(5, 9), 'Buscando pedidos conferidos'));
+        else if (r < 0.36) q.push(go(a, SP.almBox()), wait(U.rand(12, 20), 'Buscando caixas e fita'));
+        break;
+      }
+      case 'conferente':
+        q.push(go(a, wsPos[a.base]), wait(U.rand(60, 200), 'Conferindo', { cut: true }));
+        if (U.rng() < 0.2) q.push(go(a, SP.packIn()), wait(U.rand(4, 8), 'Levando ao packing'));
+        break;
+      case 'expedidor':
+        q.push(go(a, SP.packOut()), wait(U.rand(8, 15), 'Retirando volumes'), go(a, SP.dock()), wait(U.rand(15, 35), 'Carregando na doca'));
+        if (U.rng() < 0.08) q.push(go(a, SP.office()), wait(40, 'No escritório'));
+        break;
+      case 'recebedor':
+        if (a.base === 'dev') {
+          q.push(go(a, { x: 5, y: 12.4 }), wait(U.rand(120, 300), 'Triando devoluções', { cut: true }));
+          if (U.rng() < 0.15) q.push(go(a, SP.aisle('arm')), wait(U.rand(10, 20), 'Reendereçando'));
+        } else {
+          q.push(go(a, SP.recDock()), wait(U.rand(20, 45), 'Descarregando'), go(a, SP.recStage()), wait(U.rand(8, 15), 'Conferindo a nota'),
+            go(a, SP.aisle('arm'), 1.7), wait(U.rand(10, 20), 'Armazenando'));
+        }
+        break;
+      default: // líder
+        if (U.rng() < 0.25) q.push(go(a, SP.office()), wait(U.rand(120, 240), 'No escritório', { cut: true }));
+        else q.push(go(a, SP.leader()), wait(U.rand(20, 60), 'Acompanhando a área'));
+    }
+  }
+  const pendingInterrupt = (a, t) => (!a.breakDone && t >= a.breakAt) || t >= a.nextWc;
+  function takeTask(a, t) {
+    if (!a.q.length) {
+      if (!a.breakDone && t >= a.breakAt) { a.breakDone = true; a.q.push(go(a, a.seat), wait(900, 'Pausa programada', { brk: true })); }
+      else if (t >= a.nextWc) { a.nextWc = t + U.rand(90 * 60, 140 * 60); a.q.push(go(a, SP.wc()), wait(U.rand(180, 330), '—')); }
+      else plan(a);
+    }
+    const c = a.q.shift();
+    if (c.k === 'go') { c.route = ROUTER.route(a.x, a.y, c.to.x, c.to.y); c.s = 0; }
+    else c.until = t + c.dur;
+    return c;
+  }
+  const tmp = { x: 0, y: 0, dx: 0, dy: 0 };
+  function advance(a, t, h) {
+    let tt = t, rem = h, guard = 0;
+    while (rem > 1e-6 && guard++ < 24) {
+      if (!a.cur) a.cur = takeTask(a, tt);
+      const c = a.cur;
+      if (c.k === 'go') {
+        const left = c.route.len - c.s, need = left / c.v;
+        if (need <= rem) { c.s = c.route.len; rem -= need; tt += need; a.cur = null; }
+        else { c.s += c.v * rem; tt += rem; rem = 0; }
+        ROUTER.pointAt(c.route, c.s, tmp);
+        a.x = tmp.x; a.y = tmp.y;
+        if (tmp.dx || tmp.dy) { a.hx = tmp.dx; a.hy = tmp.dy; }
+        if (left > 0.01) a.lastMoveT = tt;
+      } else {
+        if (c.cut && pendingInterrupt(a, tt)) { a.cur = null; a.q.length = 0; continue; }
+        const left = c.until - tt;
+        if (left <= rem) { rem -= Math.max(0, left); tt = Math.max(tt, c.until); a.cur = null; }
+        else rem = 0;
+      }
+    }
+  }
+
+  /* ---------- backend: medição ruidosa → filtro α-β → map-matching → privacidade → publicação ---------- */
+  const pending = [];                              // amostras "em trânsito" (chegam ao front com atraso de rede)
+  const inDropout = (a, t) => a.dropouts.some((d) => t >= d[0] && t < d[1]);
+  const rtmp = { x: 0, y: 0, dx: 0, dy: 0 };
+  function emit(a, t) {
+    if (inDropout(a, t) || U.rng() < LOSS) return;
+    const s = { pid: a.id, t, brk: !!(a.cur && a.cur.brk), sos: !!a.sos, batt: a.battery };
+    const e = a.est;
+    let priv = LAYOUT.inPrivHalo(a.x, a.y);
+    if (!priv) {
+      const still = t - a.lastMoveT > 2.5;          // "acelerômetro parado"
+      const mx = a.x + U.gauss() * SIGMA, my = a.y + U.gauss() * SIGMA;
+      let dt = 0;
+      if (!e.init) { e.x = e.px = a.x; e.y = e.py = a.y; e.vx = e.vy = 0; e.init = true; }
+      else {
+        dt = Math.max(0.2, t - e.tl);
+        if (still) { e.vx = 0; e.vy = 0; e.x += 0.06 * (mx - e.x); e.y += 0.06 * (my - e.y); }
+        else {
+          const px = e.x + e.vx * dt, py = e.y + e.vy * dt, rx = mx - px, ry = my - py;
+          e.x = px + 0.35 * rx; e.y = py + 0.35 * ry; e.vx += 0.12 * rx / dt; e.vy += 0.12 * ry / dt;
+          const sp = U.hyp(e.vx, e.vy); if (sp > 2.0) { e.vx *= 2.0 / sp; e.vy *= 2.0 / sp; }
+        }
+        // restrição de velocidade do filtro: a estimativa publicada não "salta" mais que 2,2 m/s
+        const jx = e.x - e.px, jy = e.y - e.py, jl = U.hyp(jx, jy), lim = 2.2 * dt;
+        if (jl > lim) { e.x = e.px + (jx / jl) * lim; e.y = e.py + (jy / jl) * lim; }
+      }
+      // map-matching simplificado: estimativa do lado errado de uma estante volta para a rua em que a pessoa está
+      if (!LAYOUT.segmentFree(a.x, a.y, e.x, e.y, 0.1) || !LAYOUT.pointClear(e.x, e.y, 0.3)) {
+        const d = (e.x - a.x) * a.hx + (e.y - a.y) * a.hy, cx = a.x + a.hx * d, cy = a.y + a.hy * d;
+        if (LAYOUT.segmentFree(a.x, a.y, cx, cy, 0.1) && LAYOUT.pointClear(cx, cy, 0.3)) { e.x = cx; e.y = cy; } else { e.x = a.x; e.y = a.y; }
+      }
+      // restrição de velocidade AO LONGO DA ROTA, depois do map-matching: o salto entre estimativas publicadas,
+      // medido pelo mesmo roteador que o front usa, nunca passa de 2,2 m/s. Sem isso o map-matching e as pontas
+      // de estante geravam ~75 "teletransportes" falsos por hora (L_rota/Δt > 2,5 m/s no front).
+      if (dt > 0) {
+        const rt = ROUTER.route(e.px, e.py, e.x, e.y), lim = 2.2 * dt;
+        if (rt.len > lim) { ROUTER.pointAt(rt, lim, rtmp); e.x = rtmp.x; e.y = rtmp.y; }
+      }
+      // a estimativa (não só a posição verdadeira) também não pode cair no halo de privacidade
+      if (LAYOUT.inPrivHalo(e.x, e.y)) {
+        const q = LAYOUT.pushOutOfPriv(e.x, e.y);
+        if (q) { e.x = q.x; e.y = q.y; } else priv = true;
+      }
+      if (!priv) {
+        e.tl = t; e.px = e.x; e.py = e.y;
+        const zone = LAYOUT.zoneAt(e.x, e.y);
+        if (zone) a.lastZz = zone;                  // modo zona: a zona só muda quando a pessoa entra em outra (histerese)
+        Object.assign(s, { x: e.x, y: e.y, acc: still ? 2.0 : 2.6, spd: still ? 0 : U.hyp(e.vx, e.vy), still, zone, zz: a.lastZz || zone });
+      }
+    }
+    if (priv) {
+      // Privacidade aplicada NO SERVIDOR: dentro do banheiro/vestiário + halo de 3 m não sai coordenada individual
+      s.priv = true; e.init = false; a.lastZz = null;
+    }
+    e.tl = t;
+    pending.push({ at: t + 0.06 + U.rng() * 0.25, s });   // ticks a 4 Hz + rede
+  }
+  /* Contagem agregada da zona privada: com 60 s de atraso e supressão de números pequenos (k = 3). */
+  const wcHist = [];
+  function wcBucketAt(t) {
+    let c = null;
+    for (let i = wcHist.length - 1; i >= 0; i--) if (wcHist[i][0] <= t - 60) { c = wcHist[i][1]; break; }
+    if (c === null) return '—';
+    return c === 0 ? '0' : c < 3 ? '<3' : '3+';
+  }
+  let lastWcRec = 0;
+
+  /* Passo da simulação: move todos, publica amostras a 1 Hz e entrega as que já "chegaram". */
+  function step(t, h, deliver) {
+    for (const a of agents) {
+      advance(a, t, h);
+      while (a.nextSample <= t + h) { emit(a, a.nextSample); a.nextSample += RATE + U.gauss() * 0.06; }
+    }
+    if (t - lastWcRec >= 5) {
+      lastWcRec = t;
+      wcHist.push([t, agents.filter((a) => a.x < Z.wc.r[2] && a.y > Z.wc.r[1]).length]);
+      if (wcHist.length > 60) wcHist.shift();
+    }
+    if (pending.length) {
+      let w = 0;
+      for (let i = 0; i < pending.length; i++) { if (pending[i].at <= t + h) deliver(pending[i].s); else pending[w++] = pending[i]; }
+      pending.length = w;
+    }
+  }
+
+  /* SOS: o evento P1 vai direto ao front, sem esperar o tick (spec §3.8, §10.4). */
+  let onEvent = () => {};
+  function triggerSos(a, t) {
+    if (!a || a.sos || LAYOUT.inPrivHalo(a.x, a.y)) return false;
+    a.sos = { t }; a.q.length = 0; a.cur = { k: 'wait', until: Infinity, label: 'Aguardando atendimento (SOS)', sos: true };
+    onEvent({ type: 'sos', pid: a.id, t, pos: { x: a.est.init ? a.est.x : a.x, y: a.est.init ? a.est.y : a.y, acc: 2.6 }, zone: LAYOUT.zoneAt(a.x, a.y) });
+    return true;
+  }
+  function clearSos(pid, t) {
+    const a = byId[pid]; if (!a || !a.sos) return;
+    a.sos = null; if (a.cur && a.cur.sos) a.cur.until = t + 20;   // retoma o trabalho 20 s depois do atendimento
+  }
+  const scripted = { sosAt: VIEW_START + 70, done: false };
+  function scriptedEvents(t) {
+    if (!scripted.done && t >= scripted.sosAt) {
+      scripted.done = true;
+      const order = ['Rafael', 'Thiago', 'Camila', 'Igor'];
+      for (const f of order) if (triggerSos(find(f), t)) break;
+    }
+  }
+  function currentLabel(pid) { const a = byId[pid]; return a && a.cur && a.cur.k === 'wait' ? a.cur.label : (a && a.cur ? 'Deslocando' : ''); }
+
+  return {
+    DAY_START, VIEW_START, agents, byId, step, triggerSos, clearSos, scriptedEvents, wcBucketAt, currentLabel,
+    setOnEvent(fn) { onEvent = fn; },
+  };
+})();
+
+/* ============================== 4. FRONT (posicionamento e estado no navegador) ==============================
+   Recebe só as amostras publicadas (como viriam do WebSocket rtls.v1) e decide o que desenhar a cada quadro.
+   Regras da spec: renderiza no passado (tr = agoraServidor − D), interpola ao longo da ROTA entre amostras
+   (nunca atravessa estantes), extrapola no máximo EMAX, usa mola crítica só para absorver correções e faz
+   "teletransporte" com fade quando o salto é implausível. Nada é inventado entre amostras. */
+const HEAT = (() => {
+  const GW = LAYOUT.W, GH = LAYOUT.H, NZ = LAYOUT.zones.length;
+  const total = new Float32Array(GW * GH), zoneTotal = new Float32Array(NZ);
+  const minutes = new Map(), zoneMin = new Map();          // janela móvel: um quadro por minuto
+  function add(s) {                                        // cada amostra vale 1 pessoa-segundo
+    const gx = U.clamp(Math.floor(s.x), 0, GW - 1), gy = U.clamp(Math.floor(s.y), 0, GH - 1), i = gy * GW + gx;
+    const m = Math.floor(s.t / 60);
+    let g = minutes.get(m); if (!g) { g = new Float32Array(GW * GH); minutes.set(m, g); prune(m); }
+    let zg = zoneMin.get(m); if (!zg) { zg = new Float32Array(NZ); zoneMin.set(m, zg); }
+    total[i] += 1; g[i] += 1;
+    const z = s.zz && LAYOUT.zoneById[s.zz];
+    if (z && !z.privacy) { zoneTotal[z.idx] += 1; zg[z.idx] += 1; }
+  }
+  function prune(m) { for (const k of minutes.keys()) if (k < m - 62) { minutes.delete(k); zoneMin.delete(k); } }
+  /* janela em minutos (0 = turno inteiro); devolve pessoa-segundos por m² */
+  function grid(win, tNow, out) {
+    if (!win) { out.set(total); return out; }
+    out.fill(0);
+    const m1 = Math.floor(tNow / 60);
+    for (let m = m1 - win + 1; m <= m1; m++) { const g = minutes.get(m); if (g) for (let i = 0; i < g.length; i++) out[i] += g[i]; }
+    return out;
+  }
+  function zones(win, tNow, out) {
+    if (!win) { out.set(zoneTotal); return out; }
+    out.fill(0);
+    const m1 = Math.floor(tNow / 60);
+    for (let m = m1 - win + 1; m <= m1; m++) { const g = zoneMin.get(m); if (g) for (let i = 0; i < NZ; i++) out[i] += g[i]; }
+    return out;
+  }
+  return { GW, GH, add, grid, zones };
+})();
+
+const FRONT = (() => {
+  const OMEGA = omegaFromSettle95(0.4);            // mola de correção: 95% em 0,4 s
+  const EMAX = 0.5;                                // extrapolação máxima: min(0,5·T50; 1 s)
+  const VMAX_FOOT = 2.5, VMAX_VEH = 4.5, GAP_TELE = 10, KBUF = 16, TRAIL_N = 240;
+  const people = [], byId = {};
+  let D = 1.4, Dtarget = 1.4, lastDcalc = -1e9;
+  const intervals = [];
+  let mode = 'xy', modeFrom = 0, modeTo = 0, modeAt = -1e9, modeM = 0;
+  let reduced = false;
+  const alerts = [];
+  const zst = {};
+  let aggregate = () => '—';
+  LAYOUT.zones.forEach((z) => (zst[z.id] = { shown: null, prev: 0, delta: 0, changeAt: -1e9, pendSince: null, zeroSince: null, status: 'ok', statusAt: -1e9, statusSince: 0, bucket: '—' }));
+
+  function init(roster) {
+    const count = {};
+    roster.forEach((r) => (count[r.short] = (count[r.short] || 0) + 1));
+    roster.forEach((r) => {
+      const parts = r.name.split(' ');
+      const short = count[r.short] > 1 ? r.short + ' ' + parts[parts.length - 1][0] + '.' : r.short;  // "Ana P." × "Ana S."
+      const p = {
+        id: r.id, idx: people.length, name: r.name, short: short.length > 14 ? short.slice(0, 13) + '…' : short, initials: r.initials,
+        role: r.role, roleLabel: r.roleLabel, vehicle: r.vehicle, ws: r.ws, beacon: r.beacon,
+        buf: [], last: null, dist: 0,
+        x: 0, y: 0, vx: 0, vy: 0, has: false, snap: true,
+        rx: 0, ry: 0, ralpha: 0, alphaTele: 1,
+        priv: false, privAt: -1e9, appearAt: -1e9, age: 999, acc: 2.6, haloR: 2.6,
+        hdg: 0, hdgOk: false, lastFastT: -1e9, state: 'stationary', base: 'stationary', stateAt: -1e9, stillSince: 0,
+        zoneXY: null, zoneSinceXY: 0, zoneZ: null, zoneSinceZ: 0, timeline: [],
+        sos: false, sosAt: -1e9, brk: false, batt: null, lastArrival: null, ghostAt: -1e9, gx: 0, gy: 0,
+        zs: { zone: null, slot: null, has: false, x: 0, y: 0, cx: 0, cy: 0, path: null, t0: 0, dur: 1, fadeAt: -1, ox: 0, oy: 0, alpha: 1 },
+        trail: { x: new Float32Array(TRAIL_N), y: new Float32Array(TRAIL_N), t: new Float64Array(TRAIL_N), br: new Uint8Array(TRAIL_N), head: 0, n: 0 },
+        lastTrailT: -1e9, trailBreak: true,
+        lab: { cand: -1, draw: -1, a: 0, target: 0, coll: null }, hoverK: 0,
+      };
+      people.push(p); byId[p.id] = p;
+    });
+  }
+
+  /* ---------- chegada de amostra ---------- */
+  function ingest(s, pre) {
+    const p = byId[s.pid]; if (!p) return;
+    if (p.last && s.t > p.last.t && !pre) { intervals.push(s.t - p.last.t); if (intervals.length > 400) intervals.shift(); }
+    const b = p.buf;
+    let i = b.length;
+    while (i > 0 && b[i - 1].t > s.t) i--;             // insere pelo t de medição (amostras fora de ordem)
+    b.splice(i, 0, s);
+    if (i > 0) link(p, b[i - 1], s, pre);
+    if (i < b.length - 1) link(p, s, b[i + 1], pre);
+    if (b.length > KBUF) b.splice(0, b.length - KBUF);
+    if (!p.last || s.t >= p.last.t) p.last = s;
+    if (s.batt != null) p.batt = s.batt;
+    if (!s.priv) HEAT.add(s);
+  }
+  function link(p, a, b, pre) {
+    a.route = null; a.tele = false;
+    if (a.distAdded) { p.dist -= a.distAdded; a.distAdded = 0; }   // religação (amostra fora de ordem) não conta duas vezes
+    if (a.priv || b.priv) return;                      // privacidade: lacuna, nunca uma linha ligando os pontos
+    const dt = Math.max(0.05, b.t - a.t), vmax = p.vehicle ? VMAX_VEH : VMAX_FOOT;
+    let len;
+    if (pre) len = U.hyp(b.x - a.x, b.y - a.y);        // pré-aquecimento: rota calculada sob demanda depois
+    else { a.route = ROUTER.route(a.x, a.y, b.x, b.y); len = a.route.len; }
+    a.tele = dt > GAP_TELE || len / dt > vmax;        // salto implausível → teletransporte (spec §3.6)
+    if (!a.tele) { p.dist += len; a.distAdded = len; }
+  }
+  /* Garante que nada desenhado saia do galpão nem entre no halo de privacidade (mola, curva de rota, mistura de modos). */
+  const gtmp = { x: 0, y: 0 };
+  function guardPos(x, y) {
+    x = U.clamp(x, 0.15, LAYOUT.W - 0.15); y = U.clamp(y, 0.15, LAYOUT.H - 0.15);
+    if (LAYOUT.inPrivHalo(x, y)) { const q = LAYOUT.pushOutOfPriv(x, y); if (q) { x = q.x; y = q.y; } }
+    gtmp.x = x; gtmp.y = y; return gtmp;
+  }
+
+  /* ---------- amostrador: interpolação / extrapolação / teletransporte (spec Apêndice B.2) ---------- */
+  const o = { x: 0, y: 0, dx: 0, dy: 0, ok: false, priv: false, alpha: 1, est: false, s: null, speed: 0 };
+  const o2 = { x: 0, y: 0, dx: 0, dy: 0 };
+  function sample(p, trp, light, ui) {
+    o.ok = false; o.priv = false; o.alpha = 1; o.est = false; o.s = null; o.speed = 0; o.dx = 0; o.dy = 0;
+    const b = p.buf, n = b.length;
+    if (!n) return o;
+    let k = n - 1;
+    while (k >= 0 && b[k].t > trp) k--;
+    if (k < 0) { const s0 = b[0]; o.s = s0; if (s0.priv) { o.priv = true; return o; } o.x = s0.x; o.y = s0.y; o.ok = true; return o; }
+    const s = b[k]; o.s = s;
+    if (s.priv) { o.priv = true; return o; }
+    o.x = s.x; o.y = s.y; o.ok = true;
+    if (light) return o;
+    // chegada por teletransporte: fade-in de 250 ms + anel fantasma (spec §3.6)
+    if (k > 0 && b[k - 1].tele && !b[k - 1].priv) {
+      if (p.lastArrival !== s.t) { p.lastArrival = s.t; p.ghostAt = ui; p.gx = s.x; p.gy = s.y; p.snap = true; }
+      if (trp - s.t < 0.25) o.alpha = (trp - s.t) / 0.25;
+    }
+    if (k < n - 1) {
+      const s1 = b[k + 1];
+      if (s1.priv) return o;                           // segura no último ponto antes do halo de privacidade
+      if (s.tele) {                                    // segura → fade-out de 150 ms antes do ponto novo
+        const tOut = s1.t - 0.15;
+        o.alpha = trp < tOut ? 1 : Math.max(0, 1 - (trp - tOut) / 0.15);
+        return o;
+      }
+      if (!s.route) s.route = ROUTER.route(s.x, s.y, s1.x, s1.y);
+      const span = Math.max(0.05, s1.t - s.t), u = (trp - s.t) / span;
+      ROUTER.pointAt(s.route, u * s.route.len, o);
+      o.speed = s.route.len / span;
+      return o;
+    }
+    // EXTRAPOLAÇÃO curta: velocidade decai linearmente até zero em EMAX, sem sair da área livre
+    const e = Math.min(trp - s.t, EMAX);
+    const pr = k > 0 ? b[k - 1] : null;
+    if (e > 0 && pr && pr.route && !pr.tele && !s.still && s.spd > 0.3) {
+      ROUTER.pointAt(pr.route, pr.route.len, o2);
+      const disp = Math.min(s.spd, 2) * (e - (e * e) / (2 * EMAX));
+      const nx = s.x + o2.dx * disp, ny = s.y + o2.dy * disp;
+      if (LAYOUT.segmentFree(s.x, s.y, nx, ny, 0.15) && LAYOUT.pointClear(nx, ny, 0.15) && !LAYOUT.inPrivHalo(nx, ny)) { o.x = nx; o.y = ny; o.est = true; o.dx = o2.dx; o.dy = o2.dy; }
+    }
+    return o;
+  }
+
+  /* ---------- modo zona: vaga estável por zona + trânsito portal → grafo → portal (spec §4.1) ---------- */
+  function assignSlot(z, p) {
+    if (p.ws) for (const s of z.slots) if (s.ws === p.ws && !s.occ) { s.occ = p.id; return s; }   // posto do WMS
+    for (const s of z.slots) if (!s.ws && !s.occ) { s.occ = p.id; return s; }
+    for (const s of z.slots) if (!s.occ) { s.occ = p.id; return s; }
+    return null;
+  }
+  function updateZoneSlot(p, zKey, tr, ui, light) {
+    const zs = p.zs, zid = zKey && zKey !== '__priv' ? zKey : null;
+    if (zid === zs.zone) return;
+    if (zs.slot) { zs.slot.occ = null; zs.slot = null; }
+    const had = zs.zone !== null && zs.has;
+    zs.zone = zid;
+    if (!zid) return;                                  // privacidade: mantém a posição só para o fade
+    const z = LAYOUT.zoneById[zid], slot = assignSlot(z, p);
+    const tx = slot ? slot.x : z.cx, ty = slot ? slot.y : z.cy;
+    zs.slot = slot;
+    if (!had || light) { zs.x = zs.cx = tx; zs.y = zs.cy = ty; zs.path = null; zs.has = true; zs.fadeAt = -1; return; }
+    if (reduced) { zs.ox = zs.cx; zs.oy = zs.cy; zs.fadeAt = ui; zs.x = tx; zs.y = ty; zs.path = null; return; }
+    zs.path = ROUTER.route(zs.cx, zs.cy, tx, ty); zs.x = tx; zs.y = ty;
+    const len = zs.path.len, v = Math.max(1.4, len / 3.5);
+    zs.dur = U.clamp(len / v, 0.6, 3.5); zs.t0 = tr;    // easing standard: início e fim são "repousos" simbólicos
+  }
+  function zonePos(p, tr, ui) {
+    const zs = p.zs;
+    zs.alpha = 1;
+    if (!zs.has) return false;
+    if (zs.path) {
+      const u = (tr - zs.t0) / zs.dur;
+      if (u >= 1) { zs.path = null; zs.cx = zs.x; zs.cy = zs.y; }
+      else { ROUTER.pointAt(zs.path, EASE.standard(U.clamp(u, 0, 1)) * zs.path.len, o2); zs.cx = o2.x; zs.cy = o2.y; }
+    } else { zs.cx = zs.x; zs.cy = zs.y; }
+    if (zs.fadeAt >= 0) {                              // movimento reduzido: fade-out/fade-in de 150 ms
+      const e = ui - zs.fadeAt;
+      if (e < MOTION.fast) { zs.cx = zs.ox; zs.cy = zs.oy; zs.alpha = 1 - e / MOTION.fast; }
+      else if (e < 2 * MOTION.fast) zs.alpha = (e - MOTION.fast) / MOTION.fast;
+      else zs.fadeAt = -1;
+    }
+    return true;
+  }
+
+  /* ---------- quadro: atualiza todos ---------- */
+  function update(tr, now, dt, ui, light) {
+    // mistura X/Y ↔ zona (700 ms, standard; com movimento reduzido é imediata)
+    if (reduced) modeM = modeTo;
+    else { const u = U.clamp((ui - modeAt) / 700, 0, 1); modeM = modeFrom + (modeTo - modeFrom) * EASE.standard(u); }
+    for (const p of people) {
+      const trp = p.sos ? now : tr;                    // SOS fura o buffer: D = 0 até o reconhecimento
+      const r = sample(p, trp, light, ui);
+      const s = r.s;
+      // privacidade
+      if (r.priv) { if (!p.priv) { p.priv = true; p.privAt = ui; } }
+      else if (p.priv && r.ok) { p.priv = false; p.appearAt = ui; p.snap = true; }
+      // posição X/Y com mola de correção
+      if (r.ok) {
+        if (!p.has || p.snap || light || U.hyp(p.x - r.x, p.y - r.y) > 4) { p.x = r.x; p.y = r.y; p.vx = p.vy = 0; p.has = true; p.snap = false; }
+        else springStep(p, r.x, r.y, dt, OMEGA);
+        const g = guardPos(p.x, p.y); p.x = g.x; p.y = g.y;
+      }
+      p.alphaTele = r.alpha;
+      p.age = s ? Math.max(0, trp - s.t) : 999;
+      if (s && s.acc) p.acc = s.acc;
+      p.brk = !!(s && s.brk);
+      // zonas (X/Y: zona da estimativa ou circulação; zona: última zona com histerese)
+      const zXY = !r.priv && s ? s.zone : null;
+      const zKey = r.priv ? '__priv' : (s ? s.zz : null);
+      // Privacidade (spec §6.7): nenhuma entrada/saída da área reservada vira registro com horário, nem reinicia o
+      // "tempo na zona" — senão a linha do tempo e o cronômetro dariam o tempo de banheiro por pessoa, indiretamente.
+      if (r.priv && !p.privSaved) p.privSaved = { xy: p.zoneXY, xyT: p.zoneSinceXY, z: p.zoneZ, zT: p.zoneSinceZ };
+      if (zXY !== p.zoneXY) {
+        p.zoneXY = zXY;
+        p.zoneSinceXY = p.privSaved && zXY && zXY === p.privSaved.xy ? p.privSaved.xyT : trp;
+      }
+      if (zKey && zKey !== p.zoneZ) {
+        const ps = p.privSaved;
+        if (zKey === '__priv') p.zoneZ = zKey;
+        else if (ps && zKey === ps.z) { p.zoneZ = zKey; p.zoneSinceZ = ps.zT; }
+        else {
+          p.zoneZ = zKey; p.zoneSinceZ = trp;
+          const lt = p.timeline[p.timeline.length - 1];
+          if (!lt || lt.zone !== zKey) { p.timeline.push({ zone: zKey, t: trp }); if (p.timeline.length > 40) p.timeline.shift(); }
+        }
+      }
+      if (!r.priv && p.privSaved && zXY && p.zoneZ !== '__priv') p.privSaved = null;   // já voltou a uma zona
+      // estado (cor + forma). "Parado" é neutro: no posto, parado = trabalhando.
+      if (s && !s.priv && s.spd >= 0.3 && !s.still) p.lastFastT = trp;
+      const moving = trp - p.lastFastT < 2;
+      let base = p.brk || p.zoneZ === 'ref' ? 'pause' : moving ? 'moving' : 'stationary';
+      if (base !== 'stationary') p.stillSince = trp; else if (p.base !== 'stationary') p.stillSince = trp;
+      p.base = base;
+      let st = base;
+      if (p.sos) st = 'sos';
+      else if (p.priv) st = 'private';
+      else if (p.age > 30) st = 'lost';
+      else if (p.age > 3) st = 'weak';
+      if (st !== p.state) { p.state = st; p.stateAt = ui; }
+      if (light) { updateZoneSlot(p, zKey, tr, ui, true); continue; }
+      // halo de incerteza (R95): mola lenta, ignora variações < 10%; cresce 0,7 m/s com sinal fraco
+      const weak = p.age > 3;
+      const hT = Math.min(8, p.acc + (weak ? 0.7 * (p.age - 3) : 0));
+      if (weak || Math.abs(hT - p.haloR) / p.haloR > 0.1) p.haloR += (hT - p.haloR) * (1 - Math.exp(-dt * 3.75));
+      // rumo (chevron): só com velocidade > 0,3 m/s e acc < 3 m, suavização circular τ = 0,3 s
+      if (r.ok && (r.dx || r.dy) && r.speed > 0.3 && st === 'moving' && p.acc < 3) {
+        const target = Math.atan2(r.dy, r.dx);
+        let d = target - p.hdg; d = Math.atan2(Math.sin(d), Math.cos(d));
+        p.hdg += p.hdgOk ? d * (1 - Math.exp(-dt / 0.3)) : d;
+        p.hdgOk = true;
+      } else p.hdgOk = false;
+      // trilha amostrada a 4 Hz em tempo de dados (spec §6.1)
+      if (r.priv || r.alpha < 1 || st === 'lost') p.trailBreak = true;
+      else if (p.has && trp - p.lastTrailT >= 0.25) {
+        const T = p.trail, h = T.head;
+        T.x[h] = p.x; T.y[h] = p.y; T.t[h] = trp; T.br[h] = p.trailBreak ? 1 : 0;
+        T.head = (h + 1) % TRAIL_N; T.n = Math.min(TRAIL_N, T.n + 1);
+        p.lastTrailT = trp; p.trailBreak = false;
+      }
+      // modo zona
+      updateZoneSlot(p, zKey, tr, ui, false);
+      const hasZ = zonePos(p, tr, ui);
+      // composição final: posição misturada entre X/Y e zona; alfa de privacidade (fade de 400 ms)
+      const privA = p.priv ? Math.max(0, 1 - (ui - p.privAt) / 400) : Math.min(1, (ui - p.appearAt) / 400);
+      const m = hasZ ? modeM : 0;
+      // mistura X/Y ↔ zona: se a reta entre a posição X/Y e a vaga cruza estante/parede, não desliza por cima dela;
+      // faz fade-out no ponto antigo e fade-in na vaga (mesmo tempo total da transição).
+      // A decisão é tomada uma vez por transição (senão alterna entre deslizar e fade e o marcador "pula").
+      let mm = m, fk = 1;
+      if (m > 0 && m < 1) {
+        if (p.mixAt !== modeAt) { p.mixAt = modeAt; p.mixBlocked = !LAYOUT.segmentFree(p.x, p.y, p.zs.cx, p.zs.cy, 0.6); }   // folga: a pessoa anda durante os 700 ms
+        else if (!p.mixBlocked && !LAYOUT.segmentFree(p.x, p.y, p.zs.cx, p.zs.cy, 0)) p.mixBlocked = true;            // rede de segurança
+        if (p.mixBlocked) { mm = m < 0.5 ? 0 : 1; fk = Math.abs(1 - 2 * m); }
+      }
+      const g = guardPos(U.lerp(p.x, p.zs.cx, mm), U.lerp(p.y, p.zs.cy, mm));
+      p.rx = g.x; p.ry = g.y;
+      p.ralpha = privA * U.lerp(p.alphaTele, p.zs.alpha, mm) * fk;
+      if (!p.has) p.ralpha = 0;
+    }
+    updateCounters(tr, ui, light);
+    if (!light) adaptD(now, dt);
+  }
+
+  /* ---------- contadores por zona: atual × planejado, debounce de 2 s (spec §6.4) ---------- */
+  function zoneOf(p) {
+    if (p.priv || p.state === 'lost' || !p.has) return null;
+    if (modeTo === 1) return p.zoneZ && p.zoneZ !== '__priv' ? p.zoneZ : null;
+    return p.zoneXY;
+  }
+  const raw = {};
+  function updateCounters(tr, ui, light) {
+    for (const z of LAYOUT.zones) raw[z.id] = 0;
+    for (const p of people) { const z = zoneOf(p); if (z && raw[z] !== undefined) raw[z]++; }
+    for (const z of LAYOUT.zones) {
+      const S = zst[z.id];
+      if (z.privacy) { S.bucket = aggregate(tr); setStatus(z, S, 'private', tr, ui); continue; }
+      const v = raw[z.id];
+      if (S.shown === null) S.shown = v;
+      else if (v !== S.shown) {
+        if (S.pendSince === null) S.pendSince = tr;
+        if (light || tr - S.pendSince >= 2) {           // delta líquido da janela, nunca pisca a cada borda
+          S.prev = S.shown; S.delta = v - S.shown; S.shown = v; S.pendSince = null;
+          if (!light) S.changeAt = ui;
+        }
+      } else S.pendSince = null;
+      if (z.planned >= 1 && S.shown === 0) { if (S.zeroSince === null) S.zeroSince = tr; } else S.zeroSince = null;
+      let st = 'ok';
+      if (z.capacity != null && S.shown > z.capacity) st = 'over';
+      else if (z.planned >= 1 && S.zeroSince !== null && tr - S.zeroSince >= 120) st = 'uncovered';
+      else if (z.planned >= 1 && S.shown <= z.planned - 1) st = 'under';
+      setStatus(z, S, st, tr, ui);
+    }
+  }
+  let alertSeq = 1;
+  function setStatus(z, S, st, tr, ui) {
+    if (st === S.status) return;
+    const old = S.status;
+    S.status = st; S.statusAt = ui; S.statusSince = tr;
+    const kindOf = (x) => (x === 'over' ? 'capacity' : x === 'uncovered' ? 'uncovered' : null);
+    const ko = kindOf(old), kn = kindOf(st);
+    if (ko) alerts.forEach((a) => { if (a.kind === ko && a.zone === z.id && a.status === 'open') { a.status = 'resolved'; a.closedAt = tr; } });
+    if (kn) alerts.push({ id: 'al_' + alertSeq++, kind: kn, sev: kn === 'capacity' ? 2 : 3, zone: z.id, openedAt: kn === 'uncovered' && S.zeroSince !== null ? S.zeroSince : tr, status: 'open' });
+    pruneAlerts();
+  }
+  function pruneAlerts() {                             // histórico limitado: um painel aberto o turno inteiro não cresce sem fim
+    if (alerts.length <= 80) return;
+    for (let i = 0; i < alerts.length && alerts.length > 60; i++) if (alerts[i].status !== 'open') alerts.splice(i--, 1);
+  }
+
+  /* ---------- atraso D adaptativo (spec §3.4): clamp(1,2·T50 + J95; 0,8; 3,0), slew ≤ 50 ms/s ---------- */
+  function adaptD(now, dt) {
+    if (now - lastDcalc > 5 && intervals.length > 40) {
+      lastDcalc = now;
+      const a = intervals.slice().sort((x, y) => x - y);
+      const t50 = a[Math.floor(a.length / 2)];
+      const dev = a.map((v) => Math.abs(v - t50)).sort((x, y) => x - y);
+      const j95 = dev[Math.floor(dev.length * 0.95)];
+      Dtarget = U.clamp(1.2 * t50 + j95, 0.8, 3.0);
+    }
+    const max = 0.05 * dt;
+    D += U.clamp(Dtarget - D, -max, max);
+  }
+
+  /* ---------- eventos P1 ---------- */
+  function onSos(ev, ui) {
+    const p = byId[ev.pid]; if (!p) return null;
+    p.sos = true; p.sosAt = ui;
+    const a = { id: 'al_' + alertSeq++, kind: 'sos', sev: 1, pid: p.id, zone: ev.zone, openedAt: ev.t, status: 'open' };
+    alerts.push(a); pruneAlerts();
+    return a;
+  }
+  function ackSos(alertId, tr) {
+    const a = alerts.find((x) => x.id === alertId); if (!a) return;
+    a.status = 'acked'; a.closedAt = tr;
+    const p = byId[a.pid]; if (p) p.sos = false;
+  }
+  function setMode(m, ui) { mode = m; modeFrom = modeM; modeTo = m === 'zone' ? 1 : 0; modeAt = ui; }
+  function zonePeople(zid) {
+    return people.filter((p) => zoneOf(p) === zid).sort((a, b) => (modeTo === 1 ? a.zoneSinceZ - b.zoneSinceZ : a.zoneSinceXY - b.zoneSinceXY));
+  }
+  return {
+    people, byId, alerts, zst, init, ingest, update, onSos, ackSos, setMode, zonePeople, zoneOf,
+    get D() { return D; }, get mode() { return mode; }, get modeM() { return modeM; },
+    setReduced(v) { reduced = v; }, setAggregate(fn) { aggregate = fn; }, TRAIL_N,
+  };
+})();
+
+/* ============================== 5. RENDER (Canvas 2D) ==============================
+   Pilha de camadas (spec §6.0): planta → zonas → calor → hachuras/alertas de zona → gateways → nomes de zona
+   → trilhas → halos → pessoas → rótulos → contadores → anéis de alerta. HUD fica no DOM.
+   Em produção: PixiJS com RenderGroup "mundo" + RenderLayer de rótulos; a lógica abaixo se mantém. */
+const RENDER = (() => {
+  const cv = document.getElementById('map'), ctx = cv.getContext('2d');
+  let W = 0, H = 0, dpr = 1;
+  const cam = { cx: LAYOUT.W / 2, cy: LAYOUT.H / 2, k: 12, fitK: 12, fly: null, follow: null, followPaused: false, s: { x: 0, y: 0, vx: 0, vy: 0 } };
+  const C = {};
+  const TOKENS = ['map-bg', 'floor', 'plan-line', 'zone-outline', 'zone-fill', 'zone-fill-hi', 'wall', 'rack', 'rack-line', 'bench', 'bench-line', 'dock',
+    'marker-outline', 'moving', 'stationary', 'break', 'lost', 'sos', 'attention', 'selection', 'ink-moving', 'ink-stationary', 'ink-break', 'ink-sos',
+    'on-attention', 'sos-banner', 'sos-banner-text', 'trail', 'trail-sel', 'halo', 'pill', 'pill-border', 'privacy', 'text', 'muted', 'surface', 'hl'];
+  let FONT_UI = 'system-ui, sans-serif', FONT_NUM = 'monospace';
+  function readTokens() {
+    const cs = getComputedStyle(document.documentElement);
+    TOKENS.forEach((t) => (C[t] = cs.getPropertyValue('--' + t).trim() || '#888'));
+    FONT_UI = cs.getPropertyValue('--font-ui').trim() || FONT_UI;
+    FONT_NUM = cs.getPropertyValue('--font-num').trim() || FONT_NUM;
+    heatDirty = true;
+  }
+  const opts = { trailSel: true, trailAll: false, heat: false, heatWin: 0, gw: false };
+  let selected = null, selectedZone = null, hover = null, reduced = false, lod = 2;
+  let onFollowChange = () => {};
+
+  /* ---------- câmera ---------- */
+  const sx = (x) => (x - cam.cx) * cam.k + W / 2;
+  const sy = (y) => (y - cam.cy) * cam.k + H / 2;
+  const toWorld = (px, py) => ({ x: (px - W / 2) / cam.k + cam.cx, y: (py - H / 2) / cam.k + cam.cy });
+  const maxK = () => (FRONT.mode === 'zone' ? 48 : 96);     // modo zona não insinua detalhe que não existe
+  const fitK = () => Math.min(W / (LAYOUT.W + 3), H / (LAYOUT.H + 3));
+  function clampCam() {
+    cam.k = U.clamp(cam.k, cam.fitK * 0.8, maxK());
+    cam.cx = U.clamp(cam.cx, -LAYOUT.W * 0.1, LAYOUT.W * 1.1);
+    cam.cy = U.clamp(cam.cy, -LAYOUT.H * 0.1, LAYOUT.H * 1.1);
+  }
+  function resize() {
+    const r = cv.getBoundingClientRect();
+    const first = W === 0;
+    W = Math.max(1, r.width); H = Math.max(1, r.height);
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    const wasFit = Math.abs(cam.k - cam.fitK) < 0.01;
+    cam.fitK = fitK();
+    if (first || wasFit) { cam.k = cam.fitK; cam.cx = LAYOUT.W / 2; cam.cy = LAYOUT.H / 2; }
+    clampCam();
+  }
+  function zoomAt(px, py, f) {
+    const w = toWorld(px, py);
+    cam.k = U.clamp(cam.k * f, cam.fitK * 0.8, maxK());
+    cam.cx = w.x - (px - W / 2) / cam.k; cam.cy = w.y - (py - H / 2) / cam.k;
+    cam.fly = null; clampCam();
+  }
+  function panBy(dx, dy) { cam.cx -= dx / cam.k; cam.cy -= dy / cam.k; cam.fly = null; clampCam(); }
+  /* Zoom-e-pan suave de van Wijk & Nuij (mesma fórmula do d3.interpolateZoom, ρ = √2). */
+  function interpolateZoom(p0, p1) {
+    const rho = Math.SQRT2, rho2 = 2, rho4 = 4;
+    const [ux0, uy0, w0] = p0, [ux1, uy1, w1] = p1, dx = ux1 - ux0, dy = uy1 - uy0, d2 = dx * dx + dy * dy;
+    let f, S;
+    if (d2 < 1e-12) { S = Math.log(w1 / w0) / rho; f = (t) => [ux0 + t * dx, uy0 + t * dy, w0 * Math.exp(rho * t * S)]; }
+    else {
+      const d1 = Math.sqrt(d2), b0 = (w1 * w1 - w0 * w0 + rho4 * d2) / (2 * w0 * rho2 * d1), b1 = (w1 * w1 - w0 * w0 - rho4 * d2) / (2 * w1 * rho2 * d1);
+      const r0 = Math.log(Math.sqrt(b0 * b0 + 1) - b0), r1 = Math.log(Math.sqrt(b1 * b1 + 1) - b1);
+      S = (r1 - r0) / rho;
+      f = (t) => { const s = t * S, c0 = Math.cosh(r0), u = (w0 / (rho2 * d1)) * (c0 * Math.tanh(rho * s + r0) - Math.sinh(r0)); return [ux0 + u * dx, uy0 + u * dy, (w0 * c0) / Math.cosh(rho * s + r0)]; };
+    }
+    f.duration = Math.abs(S) * 1000;
+    return f;
+  }
+  function flyTo(cx, cy, k, animate = true) {
+    k = U.clamp(k, cam.fitK * 0.8, maxK());
+    if (!animate || reduced || !W) { cam.cx = cx; cam.cy = cy; cam.k = k; cam.fly = null; clampCam(); return; }
+    const f = interpolateZoom([cam.cx, cam.cy, W / cam.k], [cx, cy, W / k]);
+    cam.fly = { f, t0: performance.now(), dur: U.clamp(f.duration, 600, 1200) };
+  }
+  function fit(animate) { cam.fitK = fitK(); flyTo(LAYOUT.W / 2, LAYOUT.H / 2, cam.fitK, animate); }
+  function frameZone(z) { const k = Math.min(W / (z.w + 4), H / (z.h + 4)); flyTo(z.cx, z.cy, k, true); }
+  function startFollow(id) {
+    const p = FRONT.byId[id]; if (!p || p.priv) return;
+    cam.follow = id; cam.followPaused = false; cam.s.x = cam.cx; cam.s.y = cam.cy; cam.s.vx = cam.s.vy = 0;
+    if (cam.k < 24) flyTo(p.rx, p.ry, 28, true);
+    onFollowChange();
+  }
+  function stopFollow(reason) { if (!cam.follow) return; cam.follow = null; cam.followPaused = false; onFollowChange(reason); }
+  const OMEGA_CAM = omegaFromSettle95(1.2);
+  function updateCamera(ui, dt) {
+    if (cam.fly) {
+      const u = U.clamp((ui - cam.fly.t0) / cam.fly.dur, 0, 1), v = cam.fly.f(EASE.standard(u));
+      cam.cx = v[0]; cam.cy = v[1]; cam.k = W / v[2];
+      if (u >= 1) cam.fly = null;
+      clampCam();
+      cam.s.x = cam.cx; cam.s.y = cam.cy; cam.s.vx = cam.s.vy = 0;
+      return;
+    }
+    if (!cam.follow || cam.followPaused) return;
+    const p = FRONT.byId[cam.follow];
+    if (!p) return stopFollow();
+    if (p.priv) return stopFollow('privacy');      // para na borda da área reservada
+    if (p.state === 'lost') return stopFollow('lost');
+    const ex = p.rx - cam.cx, ey = p.ry - cam.cy, d = U.hyp(ex, ey) * cam.k, R = 0.15 * Math.min(W, H);
+    if (reduced) { if (d > R) { cam.cx = p.rx; cam.cy = p.ry; clampCam(); } return; }   // recentrar em passos
+    let tx = cam.cx, ty = cam.cy;
+    if (d > R) { const f = 1 - R / d; tx = cam.cx + ex * f; ty = cam.cy + ey * f; }   // zona morta de 15%
+    cam.s.x = cam.cx; cam.s.y = cam.cy;
+    springStep(cam.s, tx, ty, dt, OMEGA_CAM);
+    cam.cx = cam.s.x; cam.cy = cam.s.y; clampCam();
+  }
+
+  /* ---------- LOD por px/m com histerese de ±10% (spec §5.2) ---------- */
+  const TH = [6, 12, 24, 48], MSIZE = [6, 12, 20, 20, 22];
+  function lodFor(k, cur) {
+    while (cur < 4 && k >= TH[cur] * 1.1) cur++;
+    while (cur > 0 && k < TH[cur - 1] / 1.1) cur--;
+    return cur;
+  }
+
+  /* ---------- cores do mapa de calor: cividis (segura para daltônicos), zero transparente ---------- */
+  const CIV = [[0, 34, 78], [53, 69, 108], [102, 105, 112], [165, 156, 116], [254, 232, 56]];
+  function cividis(v, out) {
+    const t = U.clamp(v, 0, 1) * (CIV.length - 1), i = Math.min(CIV.length - 2, Math.floor(t)), f = t - i;
+    for (let c = 0; c < 3; c++) out[c] = Math.round(CIV[i][c] + (CIV[i + 1][c] - CIV[i][c]) * f);
+    return out;
+  }
+  const HEAT_SCALE = { 15: 3, 60: 10, 0: 30 };       // pessoa-min/m² por janela — escala FIXA (spec §6.2)
+  const ZONE_SCALE = { 15: 0.4, 60: 1.5, 0: 4 };
+  const heatCv = [document.createElement('canvas'), document.createElement('canvas')];
+  heatCv.forEach((c) => { c.width = LAYOUT.W; c.height = LAYOUT.H; });
+  let heatCur = 0, heatAt = -1e9, heatDataT = -1e9, heatDirty = true;
+  const hg = new Float32Array(LAYOUT.W * LAYOUT.H), hb = new Float32Array(LAYOUT.W * LAYOUT.H), zg = new Float32Array(LAYOUT.zones.length);
+  function blur(src, dst) {                       // caixa 3×3: o borrão representa a incerteza da posição
+    const GW = LAYOUT.W, GH = LAYOUT.H;
+    for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
+      let s = 0, n = 0;
+      for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
+        const xx = x + i, yy = y + j;
+        if (xx >= 0 && yy >= 0 && xx < GW && yy < GH) { s += src[yy * GW + xx]; n++; }
+      }
+      dst[y * GW + x] = s / n;
+    }
+  }
+  const rgb = [0, 0, 0];
+  function rebuildHeat(tr, ui) {
+    HEAT.grid(opts.heatWin, tr, hg); blur(hg, hb); blur(hb, hg);
+    const next = 1 - heatCur, c = heatCv[next].getContext('2d'), img = c.createImageData(LAYOUT.W, LAYOUT.H);
+    const scale = HEAT_SCALE[opts.heatWin] * 60;
+    for (let i = 0; i < hg.length; i++) {
+      const v = hg[i] / scale;
+      if (v < 0.02) { img.data[i * 4 + 3] = 0; continue; }
+      cividis(v, rgb);
+      img.data[i * 4] = rgb[0]; img.data[i * 4 + 1] = rgb[1]; img.data[i * 4 + 2] = rgb[2];
+      img.data[i * 4 + 3] = Math.round(255 * Math.min(1, 0.35 + v));
+    }
+    c.putImageData(img, 0, 0);
+    // a área de privacidade e seu halo ficam FORA do calor
+    const wc = LAYOUT.zoneById.wc.r, hh = LAYOUT.PRIV_HALO;
+    c.clearRect(wc[0], wc[1] - hh, wc[2] - wc[0] + hh, wc[3] - wc[1] + hh);
+    HEAT.zones(opts.heatWin, tr, zg);
+    heatCur = next; heatAt = ui; heatDataT = tr; heatDirty = false;
+  }
+  function drawHeat(ui, tr) {
+    if (heatDirty || tr - heatDataT >= 30) rebuildHeat(tr, ui);   // recálculo a cada 30 s de dados
+    const m = FRONT.modeM, cross = reduced ? 1 : U.clamp((ui - heatAt) / MOTION.slower, 0, 1);
+    ctx.imageSmoothingEnabled = true;
+    if (m < 1) {                                   // X/Y: superfície contínua (só existe com grade densa)
+      ctx.globalAlpha = 0.65 * (1 - m) * (1 - cross);
+      if (ctx.globalAlpha > 0.01) ctx.drawImage(heatCv[1 - heatCur], 0, 0, LAYOUT.W, LAYOUT.H);
+      ctx.globalAlpha = 0.65 * (1 - m) * cross;
+      ctx.drawImage(heatCv[heatCur], 0, 0, LAYOUT.W, LAYOUT.H);
+    }
+    if (m > 0) {                                   // zona: coroplético, nunca mancha inventada
+      const sc = ZONE_SCALE[opts.heatWin] * 60;
+      for (const z of LAYOUT.zones) {
+        if (z.privacy) continue;
+        const v = zg[z.idx] / z.area / sc;
+        if (v < 0.02) continue;
+        cividis(v, rgb);
+        ctx.globalAlpha = 0.55 * m;
+        ctx.fillStyle = 'rgb(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ')';
+        ctx.fillRect(z.r[0], z.r[1], z.w, z.h);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /* ---------- planta (coordenadas do mundo, em metros) ---------- */
+  function drawPlan(k) {
+    const px = 1 / k, D = LAYOUT.decor;
+    ctx.fillStyle = C.floor; ctx.fillRect(0, 0, LAYOUT.W, LAYOUT.H);
+    // zonas: preenchimento neutro; no modo zona, a zona ocupada fica levemente mais forte
+    const m = FRONT.modeM;
+    for (const z of LAYOUT.zones) {
+      ctx.globalAlpha = 1; ctx.fillStyle = C['zone-fill']; ctx.fillRect(z.r[0], z.r[1], z.w, z.h);
+      const S = FRONT.zst[z.id];
+      if (m > 0 && !z.privacy && S.shown > 0) { ctx.globalAlpha = m * Math.min(1, 0.35 + S.shown / (z.capacity || 6)); ctx.fillStyle = C['zone-fill-hi']; ctx.fillRect(z.r[0], z.r[1], z.w, z.h); }
+    }
+    ctx.globalAlpha = 1;
+    // demarcações de piso
+    ctx.setLineDash([4 * px, 3 * px]); ctx.lineWidth = px; ctx.strokeStyle = C['plan-line'];
+    for (const s of D.stages) ctx.strokeRect(s[0], s[1], s[2] - s[0], s[3] - s[1]);
+    ctx.setLineDash([]);
+    // mesas (decorativas)
+    ctx.fillStyle = C.bench; ctx.strokeStyle = C['bench-line']; ctx.lineWidth = px;
+    for (const t of D.refTables.concat(D.deskTables)) { ctx.fillRect(t[0], t[1], t[2] - t[0], t[3] - t[1]); ctx.strokeRect(t[0], t[1], t[2] - t[0], t[3] - t[1]); }
+    // obstáculos
+    for (const o of LAYOUT.obstacles) {
+      const r = o.r, w = r[2] - r[0], h = r[3] - r[1];
+      if (o.kind === 'wall') { ctx.fillStyle = C.wall; ctx.fillRect(r[0], r[1], w, h); continue; }
+      if (o.kind === 'rack') {
+        ctx.fillStyle = C.rack; ctx.fillRect(r[0], r[1], w, h);
+        ctx.strokeStyle = C['rack-line']; ctx.lineWidth = px; ctx.strokeRect(r[0], r[1], w, h);
+        if (k > 9) { ctx.beginPath(); for (let y = r[1] + 1.5; y < r[3] - 0.1; y += 1.5) { ctx.moveTo(r[0], y); ctx.lineTo(r[2], y); } ctx.moveTo((r[0] + r[2]) / 2, r[1]); ctx.lineTo((r[0] + r[2]) / 2, r[3]); ctx.stroke(); }
+        continue;
+      }
+      ctx.fillStyle = C.bench; ctx.fillRect(r[0], r[1], w, h);
+      ctx.strokeStyle = C['bench-line']; ctx.lineWidth = px; ctx.strokeRect(r[0], r[1], w, h);
+    }
+    // cabines do banheiro (decorativas)
+    ctx.strokeStyle = C['plan-line']; ctx.lineWidth = px; ctx.beginPath();
+    for (let x = 1.25; x < 4.9; x += 1.25) { ctx.moveTo(x, 33.5); ctx.lineTo(x, 35.3); }
+    ctx.stroke();
+    // contornos de zona (≥ 3:1 contra o fundo)
+    ctx.strokeStyle = C['zone-outline']; ctx.lineWidth = px;
+    for (const z of LAYOUT.zones) ctx.strokeRect(z.r[0], z.r[1], z.w, z.h);
+    // paredes externas e portas de doca
+    ctx.strokeStyle = C.wall; ctx.lineWidth = Math.max(2.5 * px, 0.2);
+    ctx.strokeRect(0, 0, LAYOUT.W, LAYOUT.H);
+    ctx.fillStyle = C.dock;
+    for (const x of D.recDocks) ctx.fillRect(x - 1.3, -0.55, 2.6, 0.55);
+    for (const y of D.expDocks) { ctx.fillRect(LAYOUT.W, y - 1.3, 0.55, 2.6); ctx.strokeStyle = C['plan-line']; ctx.lineWidth = px; ctx.strokeRect(LAYOUT.W - 1.2, y - 1.1, 1.2, 2.2); }
+  }
+
+  /* ---------- sobreposições de zona em coordenadas de tela ---------- */
+  function hatch(r, color, gap, lw, alpha) {
+    const x0 = sx(r[0]), y0 = sy(r[1]), x1 = sx(r[2]), y1 = sy(r[3]);
+    ctx.save(); ctx.beginPath(); ctx.rect(x0, y0, x1 - x0, y1 - y0); ctx.clip();
+    ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.globalAlpha = alpha; ctx.beginPath();
+    for (let x = x0 - (y1 - y0); x < x1; x += gap) { ctx.moveTo(x, y1); ctx.lineTo(x + (y1 - y0), y0); }
+    ctx.stroke(); ctx.restore();
+  }
+  function drawLock(x, y, s, color) {
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = Math.max(1.5, s * 0.14);
+    ctx.beginPath(); ctx.arc(x, y - s * 0.15, s * 0.3, Math.PI, 0); ctx.stroke();
+    ctx.fillRect(x - s * 0.42, y - s * 0.15, s * 0.84, s * 0.62);
+  }
+  function drawZoneOverlays(ui) {
+    for (const z of LAYOUT.zones) {
+      const S = FRONT.zst[z.id];
+      if (z.privacy) {
+        hatch(z.r, C.privacy, 9, 1, 0.45);
+        const cx = sx(z.cx), cy = sy(z.cy);
+        if ((z.w * cam.k) > 50) {
+          drawLock(cx, cy - 6, 16, C.muted);
+          if (z.w * cam.k > 90) { ctx.fillStyle = C.muted; ctx.font = '600 12px ' + FONT_UI; ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillText('Área reservada', cx, cy + 8); }
+        }
+      } else if (S.status === 'uncovered') {    // P3: estático, hachura âmbar (padrão funciona para daltônicos)
+        hatch(z.r, C.attention, 10, 2, 0.55);
+        ctx.strokeStyle = C.attention; ctx.lineWidth = 2; ctx.strokeRect(sx(z.r[0]) + 1, sy(z.r[1]) + 1, z.w * cam.k - 2, z.h * cam.k - 2);
+      } else if (S.status === 'over') {         // P2: contorno pulsando 1,2 s por 10 s, depois estático
+        const e = ui - S.statusAt;
+        let a = 1, lw = 3;
+        if (!reduced && e < 10000) { const tri = 0.5 - 0.5 * Math.cos((2 * Math.PI * (e % 1200)) / 1200); a = 0.4 + 0.6 * tri; lw = 2 + 2 * tri; }
+        ctx.globalAlpha = a; ctx.strokeStyle = C.sos; ctx.lineWidth = lw;
+        ctx.strokeRect(sx(z.r[0]) + lw / 2, sy(z.r[1]) + lw / 2, z.w * cam.k - lw, z.h * cam.k - lw);
+        ctx.globalAlpha = 1;
+      }
+      if (selectedZone === z.id) { ctx.strokeStyle = C.selection; ctx.lineWidth = 2; ctx.setLineDash([6, 4]); ctx.strokeRect(sx(z.r[0]) + 1, sy(z.r[1]) + 1, z.w * cam.k - 2, z.h * cam.k - 2); ctx.setLineDash([]); }
+    }
+  }
+  function drawGateways() {
+    ctx.lineWidth = 1.5;
+    for (const g of LAYOUT.gateways) {
+      const x = sx(g.x), y = sy(g.y);
+      ctx.strokeStyle = C.muted; ctx.globalAlpha = 0.9;
+      ctx.beginPath(); ctx.arc(x, y, 9, -Math.PI * 0.8, -Math.PI * 0.2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(x, y, 14, -Math.PI * 0.8, -Math.PI * 0.2); ctx.stroke();
+      ctx.fillStyle = C.surface; ctx.strokeStyle = C.text; ctx.lineWidth = 1.5;
+      ctx.fillRect(x - 4, y - 4, 8, 8); ctx.strokeRect(x - 4, y - 4, 8, 8);
+      if (lod >= 3) { ctx.fillStyle = C.muted; ctx.font = '600 10px ' + FONT_NUM; ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillText(g.id, x, y + 7); }
+    }
+    ctx.globalAlpha = 1;
+  }
+  const BADGE_H = 22;
+  function badgeWidth(z) { return z.privacy ? 52 : z.planned != null ? 66 : 40; }
+  function drawZoneNames() {
+    nameBoxes.length = 0;
+    ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+    const fs = U.clamp(cam.k * 0.62, 10, 13);
+    ctx.font = '650 ' + fs + 'px ' + FONT_UI; ctx.fillStyle = C.muted;
+    for (const z of LAYOUT.zones) {
+      const avail = z.w * cam.k - badgeWidth(z) - 18;
+      let t = z.name.toUpperCase();
+      if (ctx.measureText(t).width > avail) t = z.short.toUpperCase();
+      if (ctx.measureText(t).width > avail) continue;
+      ctx.fillText(t, sx(z.r[0]) + 7, sy(z.r[1]) + 8);
+      nameBoxes.push({ x: sx(z.r[0]) + 5, y: sy(z.r[1]) + 6, w: ctx.measureText(t).width + 4, h: fs + 4 });   // rótulo de pessoa não cobre nome de zona
+    }
+    if (lod >= 3) {                                 // identificação das ruas de estantes
+      ctx.font = '600 10px ' + FONT_NUM; ctx.textAlign = 'center'; ctx.fillStyle = C.muted;
+      for (const o of LAYOUT.obstacles) if (o.kind === 'rack') ctx.fillText(o.label.replace('Rua ', ''), sx((o.r[0] + o.r[2]) / 2), sy(o.r[3]) + 3);
+    }
+  }
+
+  /* ---------- trilhas que desvanecem (alfa (1 − idade/T)^1,5, largura 3 → 1 px) ---------- */
+  function drawTrails(tr) {
+    const m = FRONT.modeM; if (m >= 1) return;     // modo zona: sem trilha contínua (seria inventada)
+    ctx.lineCap = 'round';
+    for (const p of FRONT.people) {
+      const isSel = p === selected;
+      if (!(opts.trailAll || (opts.trailSel && isSel))) continue;
+      const T = isSel ? 60 : 20, R = p.trail, N = FRONT.TRAIL_N;
+      if (R.n < 2) continue;
+      ctx.strokeStyle = isSel ? C['trail-sel'] : C.trail;
+      let px = null, py = null;
+      for (let j = R.n - 1; j >= 0; j--) {
+        const i = (R.head - 1 - j + N * 2) % N, age = tr - R.t[i];
+        const x = sx(R.x[i]), y = sy(R.y[i]);
+        if (age <= T && px !== null && !R.br[i]) {
+          const f = 1 - age / T;
+          ctx.globalAlpha = Math.pow(f, 1.5) * (1 - m) * (isSel ? 1 : 0.9);
+          ctx.lineWidth = 1 + 2 * f;
+          ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(x, y); ctx.stroke();
+        }
+        px = x; py = y;
+      }
+      if (px !== null && !p.trailBreak && p.ralpha > 0.5) { ctx.globalAlpha = 1 - m; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(sx(p.x), sy(p.y)); ctx.stroke(); }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /* ---------- pessoas ---------- */
+  const STATE_FILL = { moving: 'moving', stationary: 'stationary', pause: 'break', sos: 'sos' };
+  const STATE_INK = { moving: 'ink-moving', stationary: 'ink-stationary', pause: 'ink-break', sos: 'ink-sos' };
+  function shapePath(shape, x, y, r) {
+    ctx.beginPath();
+    if (shape === 'square') { const q = r * 0.92, rr = q * 0.38; ctx.moveTo(x - q + rr, y - q); ctx.arcTo(x + q, y - q, x + q, y + q, rr); ctx.arcTo(x + q, y + q, x - q, y + q, rr); ctx.arcTo(x - q, y + q, x - q, y - q, rr); ctx.arcTo(x - q, y - q, x + q, y - q, rr); ctx.closePath(); }
+    else if (shape === 'diamond') { const q = r * 1.4; ctx.moveTo(x, y - q); ctx.lineTo(x + q, y); ctx.lineTo(x, y + q); ctx.lineTo(x - q, y); ctx.closePath(); }
+    else ctx.arc(x, y, r, 0, Math.PI * 2);
+  }
+  function drawMarker(p, x, y, r, alpha) {
+    const st = p.state, base = st === 'weak' || st === 'lost' || st === 'private' ? p.base : st;
+    const shape = st === 'sos' ? 'diamond' : base === 'pause' ? 'square' : 'circle';
+    const m = FRONT.modeM;
+    ctx.globalAlpha = alpha;
+    if (m > 0.05 && st !== 'sos') { ctx.globalAlpha = alpha * 0.5 * m; ctx.strokeStyle = C['zone-outline']; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(x, y, r + 3.5, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = alpha; }   // "assento" do modo zona
+    if (st === 'lost') {                            // vazado e tracejado, opacidade 0,45
+      // #9AA3AE no claro fica em 2,36:1: a spec pede "+ contorno" escuro por baixo (no escuro o contorno some no fundo)
+      ctx.globalAlpha = alpha * 0.45;
+      ctx.setLineDash([3, 2]); shapePath('circle', x, y, r - 1);
+      ctx.strokeStyle = C['marker-outline']; ctx.lineWidth = 3.5; ctx.stroke();
+      ctx.strokeStyle = C.lost; ctx.lineWidth = 2; ctx.stroke(); ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(x - r * 0.6, y + r * 0.6); ctx.lineTo(x + r * 0.6, y - r * 0.6);
+      ctx.strokeStyle = C['marker-outline']; ctx.lineWidth = 3.5; ctx.stroke();
+      ctx.strokeStyle = C.lost; ctx.lineWidth = 2; ctx.stroke();
+    } else {
+      ctx.globalAlpha = alpha * (st === 'weak' ? 0.7 : 1);
+      ctx.fillStyle = C[STATE_FILL[base] || 'stationary'];
+      shapePath(shape, x, y, r); ctx.fill();
+      if (st === 'weak') { ctx.setLineDash([3, 2]); ctx.strokeStyle = C.text; } else ctx.strokeStyle = C['marker-outline'];
+      ctx.lineWidth = 1.5; ctx.stroke(); ctx.setLineDash([]);
+      ctx.globalAlpha = alpha;
+      // chevron de rumo (só X/Y, em movimento, acc < 3 m)
+      if (p.hdgOk && base === 'moving' && m < 0.5 && r >= 5) {
+        const a = p.hdg, c = Math.cos(a), s = Math.sin(a), t = r + 6, b = r + 1.5, w = Math.max(3, r * 0.45);
+        ctx.fillStyle = C[STATE_FILL.moving]; ctx.strokeStyle = C['marker-outline']; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(x + c * t, y + s * t); ctx.lineTo(x + c * b - s * w, y + s * b + c * w); ctx.lineTo(x + c * b + s * w, y + s * b - c * w); ctx.closePath(); ctx.fill(); ctx.stroke();
+      }
+      // conteúdo: "!" no SOS; iniciais a partir de L2
+      if (st === 'sos') { ctx.fillStyle = C['ink-sos']; ctx.font = '800 ' + Math.max(9, r * 1.1) + 'px ' + FONT_UI; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('!', x, y + 0.5); }
+      else if (r >= 9) { ctx.fillStyle = C[STATE_INK[base] || 'ink-stationary']; ctx.font = '700 ' + Math.round(r * 0.82) + 'px ' + FONT_UI; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(p.initials, x, y + 0.5); }
+      else if (base === 'pause' && r >= 5) { ctx.fillStyle = C['ink-break']; ctx.fillRect(x - r * 0.42, y - r * 0.45, r * 0.28, r * 0.9); ctx.fillRect(x + r * 0.14, y - r * 0.45, r * 0.28, r * 0.9); }
+    }
+    if (p === selected) {                            // anel duplo de seleção
+      ctx.globalAlpha = Math.max(alpha, 0.8); ctx.strokeStyle = C.selection;
+      const q = st === 'sos' ? r * 1.4 : r;
+      ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, q + 4, 0, Math.PI * 2); ctx.stroke();
+      ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(x, y, q + 7.5, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+  const drawList = [];
+  function drawPeople(ui, dtUI) {
+    const r0 = MSIZE[lod] / 2, m = FRONT.modeM;
+    drawList.length = 0;
+    for (const p of FRONT.people) {
+      p.sx = sx(p.rx); p.sy = sy(p.ry);
+      // hover: escala 1 → 1,2 em 100 ms (com movimento reduzido, só contorno)
+      const ht = p === hover ? 1 : 0;
+      p.hoverK = reduced ? ht : p.hoverK + U.clamp(ht - p.hoverK, -dtUI / MOTION.micro, dtUI / MOTION.micro);
+      p.r = r0 * (1 + 0.2 * EASE.standard(p.hoverK) * (reduced ? 0 : 1));
+      p.vis = p.ralpha > 0.02 && p.sx > -40 && p.sy > -40 && p.sx < W + 40 && p.sy < H + 40;
+      if (p.vis) drawList.push(p);
+    }
+    // halos de incerteza (R95) — só no modo X/Y
+    if (m < 1 && lod >= 1) {
+      ctx.fillStyle = C.halo;
+      for (const p of drawList) {
+        if (p.state === 'lost' || p.state === 'sos') continue;
+        ctx.globalAlpha = p.ralpha * (1 - m) * (selected && p !== selected ? 0.55 : 1);
+        ctx.beginPath(); ctx.arc(p.sx, p.sy, Math.max(p.r + 2, p.haloR * cam.k), 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+    drawList.sort((a, b) => pri(a) - pri(b));
+    for (const p of drawList) {
+      const dim = selected && p !== selected && !p.sos ? 0.55 : 1;
+      drawMarker(p, p.sx, p.sy, p.r, p.ralpha * dim);
+      if (p === hover && reduced) { ctx.strokeStyle = C.text; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(p.sx, p.sy, p.r + 3, 0, Math.PI * 2); ctx.stroke(); }
+    }
+  }
+  function pri(p) { return p.sos ? 5 : p === selected ? 4 : p.id === cam.follow ? 3 : p === hover ? 2 : 0; }
+
+  /* ---------- rótulos: guloso por prioridade, 8 candidatos, aderência de 300 ms (spec §5.3 / B.5) ---------- */
+  const boxes = [], fixedBoxes = [], counterBoxes = [], nameBoxes = [];
+  let lastLabelRun = -1e9;
+  const tw = new Map();
+  function textW(font, t) { const key = font + '|' + t; let w = tw.get(key); if (w === undefined) { ctx.font = font; w = ctx.measureText(t).width; if (tw.size > 800) tw.clear(); tw.set(key, w); } return w; }
+  const F1 = () => '600 12px ' + FONT_UI, F2 = () => '500 11px ' + FONT_UI;
+  function stateText(p) {
+    switch (p.state) {
+      case 'moving': return 'em movimento'; case 'stationary': return 'parado';
+      case 'pause': return 'pausa'; case 'weak': return 'sinal fraco'; case 'lost': return 'sem sinal';
+      case 'sos': return 'SOS'; default: return 'fora da área produtiva';
+    }
+  }
+  function labelLines(p, tr) {
+    let l1 = lod >= 4 ? p.name : p.short;
+    if (p.state === 'lost') l1 += ' · ' + U.ago(p.age);
+    if (lod < 4) return [l1];
+    const since = FRONT.mode === 'zone' ? p.zoneSinceZ : p.zoneSinceXY;
+    return [l1, p.roleLabel + ' · ' + stateText(p) + ' · há ' + U.dur(tr - since).replace(/ \d+ s$/, '') + ' na zona'];
+  }
+  function wantsLabel(p) {
+    if (p.ralpha < 0.3) return false;
+    const prio = p.sos || p === selected || p.id === cam.follow || p === hover || p.state === 'lost';
+    if (lod >= 2) return true;                     // até 40 pessoas visíveis, todos tentam (LOD adaptativo por densidade)
+    if (lod === 1) return prio;
+    return p.sos || p === selected;
+  }
+  function cand(p, k, w, h, out) {
+    const x = p.sx, y = p.sy, r = (p.state === 'sos' ? p.r * 1.4 : p.r) + (p === selected ? 7 : 0), g = 4, d = r * 0.75;
+    switch (k) {
+      case 0: out.x = x + r + g; out.y = y - h / 2; break;          // E
+      case 1: out.x = x - r - g - w; out.y = y - h / 2; break;      // W
+      case 2: out.x = x + d; out.y = y - d - h; break;              // NE
+      case 3: out.x = x - d - w; out.y = y - d - h; break;          // NW
+      case 4: out.x = x + d; out.y = y + d; break;                  // SE
+      case 5: out.x = x - d - w; out.y = y + d; break;              // SW
+      case 6: out.x = x - w / 2; out.y = y - r - g - h; break;      // N
+      default: out.x = x - w / 2; out.y = y + r + g;                // S
+    }
+    out.w = w; out.h = h; return out;
+  }
+  const hit = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  function collides(b, owner) {
+    for (const o of boxes) if (o.owner !== owner && hit(b, o)) return true;
+    for (const o of fixedBoxes) if (hit(b, o)) return true;
+    for (const o of counterBoxes) if (hit(b, o)) return true;
+    for (const o of nameBoxes) if (hit(b, o)) return true;
+    return false;
+  }
+  function measureLabel(p, tr) {
+    const lines = labelLines(p, tr);
+    let w = textW(F1(), lines[0]);
+    if (lines[1]) w = Math.max(w, textW(F2(), lines[1]));
+    p.labLines = lines; p.labW = Math.ceil(w) + 12; p.labH = lines[1] ? 32 : 19;
+  }
+  function domBox(el) {
+    if (!el || el.hidden) return null;
+    const a = el.getBoundingClientRect(), c = cv.getBoundingClientRect();
+    if (!a.width) return null;
+    return { x: a.left - c.left - 4, y: a.top - c.top - 4, w: a.width + 8, h: a.height + 8, owner: '_ui' };
+  }
+  const fixedEls = ['modeChip', 'legend', 'followChip'].map((id) => document.getElementById(id)).concat([document.querySelector('.mapctl')]);
+  function placeLabels(ui, tr) {
+    boxes.length = 0; fixedBoxes.length = 0;
+    for (const el of fixedEls) { const b = domBox(el); if (b) fixedBoxes.push(b); }
+    for (const p of drawList) { const r = p.state === 'sos' ? p.r * 1.4 : p.r; boxes.push({ x: p.sx - r - 1, y: p.sy - r - 1, w: 2 * r + 2, h: 2 * r + 2, owner: p.id }); }
+    const order = drawList.slice().sort((a, b) => pri(b) - pri(a) || (a.idx - b.idx));
+    const tmpB = { x: 0, y: 0, w: 0, h: 0 };
+    for (const p of order) {
+      const L = p.lab;
+      if (!wantsLabel(p)) { L.target = 0; if (L.cand >= 0) L.draw = L.cand; L.cand = -1; continue; }
+      measureLabel(p, tr);
+      let placed = false;
+      const tryK = (k) => {
+        cand(p, k, p.labW, p.labH, tmpB);
+        if (tmpB.x < 2 || tmpB.y < 2 || tmpB.x + tmpB.w > W - 2 || tmpB.y + tmpB.h > H - 2) return false;
+        if (collides(tmpB, p.id)) return false;
+        boxes.push({ x: tmpB.x, y: tmpB.y, w: tmpB.w, h: tmpB.h, owner: p.id });
+        L.cand = k; L.draw = k; L.target = 1; L.coll = null; return true;
+      };
+      if (L.cand >= 0) placed = tryK(L.cand);                 // aderência: primeiro o candidato anterior
+      for (let k = 0; k < 8 && !placed; k++) if (k !== L.cand) placed = tryK(k);
+      if (placed) continue;
+      if (L.cand >= 0) {
+        if (L.coll === null) L.coll = ui;
+        if (ui - L.coll <= 300) { cand(p, L.cand, p.labW, p.labH, tmpB); boxes.push({ x: tmpB.x, y: tmpB.y, w: tmpB.w, h: tmpB.h, owner: p.id }); continue; }
+        L.draw = L.cand;
+      }
+      L.cand = -1; L.target = 0; L.coll = null;
+    }
+    for (const p of FRONT.people) if (!p.vis) { p.lab.target = 0; p.lab.cand = -1; p.lab.a = 0; }
+  }
+  function drawLabels(ui, dtUI, tr) {
+    const tmpB = { x: 0, y: 0, w: 0, h: 0 };
+    for (const p of drawList) {
+      const L = p.lab;
+      L.a = reduced ? L.target : L.a + U.clamp(L.target - L.a, -dtUI / MOTION.fast, dtUI / MOTION.fast);
+      if (L.a <= 0.01 || L.draw < 0 || !p.labLines) continue;
+      if (L.target > 0 && L.cand >= 0) measureLabel(p, tr);
+      cand(p, L.draw, p.labW, p.labH, tmpB);          // entre execuções, o rótulo acompanha a âncora
+      const dim = selected && p !== selected && !p.sos ? 0.55 : 1;
+      ctx.globalAlpha = L.a * Math.min(1, p.ralpha * 1.2) * dim;
+      ctx.fillStyle = C.pill; ctx.strokeStyle = p.sos ? C.sos : p === selected ? C.selection : C['pill-border']; ctx.lineWidth = p.sos || p === selected ? 1.5 : 1;
+      roundRect(tmpB.x + 0.5, tmpB.y + 0.5, tmpB.w - 1, tmpB.h - 1, 5); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = C.text; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.font = F1(); ctx.fillText(p.labLines[0], tmpB.x + 6, tmpB.y + (p.labLines[1] ? 10 : tmpB.h / 2 + 0.5));
+      if (p.labLines[1]) { ctx.fillStyle = C.muted; ctx.font = F2(); ctx.fillText(p.labLines[1], tmpB.x + 6, tmpB.y + 23); }
+    }
+    ctx.globalAlpha = 1;
+  }
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
+
+  /* ---------- contadores por zona: "7 / 8" com rolagem, destaque e "+1" (spec §6.4) ---------- */
+  function counterText(z, v) { return z.planned != null ? v + ' / ' + z.planned : String(v); }
+  function drawCounters(ui) {
+    counterBoxes.length = 0;
+    for (const z of LAYOUT.zones) {
+      const S = FRONT.zst[z.id];
+      // Celular / zoom afastado: a zona tem menos px que o selo. Usa selo compacto (só o número atual, 11 px) e,
+      // se ainda colidir com outro selo, não desenha (o número continua no painel e na lista).
+      const zw = z.w * cam.k, compact = zw < badgeWidth(z) + 12;
+      let w = badgeWidth(z), h = BADGE_H;
+      if (compact) {
+        ctx.font = '600 11px ' + FONT_NUM;
+        w = Math.ceil(ctx.measureText(z.privacy ? S.bucket : String(S.shown == null ? 0 : S.shown)).width) + (z.privacy ? 20 : 10) + (S.status === 'ok' || S.status === 'private' ? 0 : 10);
+        h = 16;
+      }
+      const x = sx(z.r[2]) - w - (compact ? 2 : 6), y = sy(z.r[1]) + (compact ? 2 : 6);
+      if (x + w < 0 || y > H || x > W || y + h < 0) continue;
+      const cb = { x: x - 2, y: y - 2, w: w + 4, h: h + 4 };
+      if (counterBoxes.some((o) => hit(o, cb))) continue;
+      counterBoxes.push(cb);
+      let bg = C.pill, fg = C.text, border = C['pill-border'], bw = 1, glyph = '';
+      if (S.status === 'under') { border = C.attention; bw = 2; glyph = '▼'; }
+      else if (S.status === 'over') { bg = C['sos-banner']; fg = C['sos-banner-text']; border = C['sos-banner']; glyph = '▲'; }
+      else if (S.status === 'uncovered') { bg = C.attention; fg = C['on-attention']; border = C.attention; glyph = '∅'; }
+      else if (S.status === 'private') border = C.privacy;
+      ctx.fillStyle = bg; roundRect(x, y, w, h, 6); ctx.fill();
+      ctx.strokeStyle = border; ctx.lineWidth = bw; ctx.stroke();
+      // destaque de fundo de 1 s (alfa 0 → 0,35 → 0); estático com movimento reduzido
+      const e = ui - S.changeAt;
+      if (e < 1000) { ctx.globalAlpha = reduced ? 0.35 : 0.35 * Math.sin(Math.PI * e / 1000); ctx.fillStyle = C.hl; roundRect(x, y, w, h, 6); ctx.fill(); ctx.globalAlpha = 1; }
+      ctx.save(); roundRect(x, y, w, h, 6); ctx.clip();
+      ctx.textBaseline = 'middle'; ctx.textAlign = 'left'; ctx.fillStyle = fg;
+      if (compact) {
+        let cx = x + 5;
+        if (glyph) { ctx.font = '700 9px ' + FONT_UI; ctx.fillStyle = S.status === 'under' ? C.text : fg; ctx.fillText(glyph, cx, y + h / 2 + 0.5); cx += 10; }
+        if (z.privacy) { drawLock(x + 9, y + h / 2 - 1, 10, C.muted); cx = x + 16; }
+        ctx.font = '600 11px ' + FONT_NUM; ctx.fillStyle = fg;
+        ctx.fillText(z.privacy ? S.bucket : String(S.shown == null ? 0 : S.shown), cx, y + h / 2 + 0.5);
+        ctx.restore();
+        continue;                                      // sem rolagem nem "+1" no selo compacto (não há espaço)
+      }
+      let tx = x + 7;
+      if (glyph) { ctx.font = '700 10px ' + FONT_UI; ctx.fillStyle = S.status === 'under' ? C.text : fg; ctx.fillText(glyph, tx, y + h / 2 + 0.5); tx += 12; }
+      if (z.privacy) { drawLock(x + 12, y + h / 2 - 1, 12, C.muted); tx = x + 22; }
+      ctx.font = '600 13px ' + FONT_NUM; ctx.fillStyle = fg;
+      const cur = z.privacy ? S.bucket : counterText(z, S.shown == null ? 0 : S.shown);
+      if (!z.privacy && e < MOTION.medium && !reduced) {   // número antigo sobe e some; o novo entra (250 ms)
+        const u = EASE.emphDec(e / MOTION.medium);
+        ctx.globalAlpha = 1 - u; ctx.fillText(counterText(z, S.prev), tx, y + h / 2 + 0.5 - 9 * u);
+        ctx.globalAlpha = u; ctx.fillText(cur, tx, y + h / 2 + 0.5 + 9 * (1 - u));
+        ctx.globalAlpha = 1;
+      } else ctx.fillText(cur, tx, y + h / 2 + 0.5);
+      ctx.restore();
+      // etiqueta "+1" / "−1" que sobe 8 px e some em 1,2 s
+      if (!reduced && S.delta && e < 1200) {
+        const u = e / 1200;
+        ctx.globalAlpha = 1 - u; ctx.fillStyle = C.text; ctx.font = '700 11px ' + FONT_NUM; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+        ctx.fillText((S.delta > 0 ? '+' : '−') + Math.abs(S.delta), x - 4, y + h - 2 - 8 * u);
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+
+  /* ---------- anéis: SOS (1 Hz até reconhecer) e anel fantasma do teletransporte (600 ms) ---------- */
+  function drawRings(ui) {
+    for (const p of drawList) {
+      if (p.sos) {
+        const q = p.r * 1.4;
+        ctx.strokeStyle = C.sos;
+        if (reduced) { ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(p.sx, p.sy, q + 6, 0, Math.PI * 2); ctx.stroke(); ctx.beginPath(); ctx.arc(p.sx, p.sy, q + 11, 0, Math.PI * 2); ctx.stroke(); }
+        else { const ph = ((ui - p.sosAt) % 1000) / 1000; ctx.globalAlpha = 0.6 * (1 - ph); ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(p.sx, p.sy, q * (1 + 2 * ph) + 4, 0, Math.PI * 2); ctx.stroke(); }
+      }
+      const e = ui - p.ghostAt, dur = reduced ? 1000 : MOTION.slower;
+      if (e < dur && FRONT.modeM < 1) {
+        const u = reduced ? 0 : e / dur;
+        ctx.globalAlpha = reduced ? 0.5 : 0.5 * (1 - u); ctx.strokeStyle = C.text; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(sx(p.gx), sy(p.gy), p.r * (1 + u) + 2, 0, Math.PI * 2); ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  /* ---------- quadro ---------- */
+  function draw(ui, tr, dtData, dtUI) {
+    if (!W) return;
+    updateCamera(ui, dtUI / 1000);
+    const k = cam.k;
+    lod = lodFor(k, lod);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = C['map-bg']; ctx.fillRect(0, 0, W, H);
+    ctx.setTransform(dpr * k, 0, 0, dpr * k, dpr * (W / 2 - cam.cx * k), dpr * (H / 2 - cam.cy * k));
+    drawPlan(k);
+    if (opts.heat) drawHeat(ui, tr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drawZoneOverlays(ui);
+    if (opts.gw) drawGateways();
+    drawZoneNames();
+    drawTrails(tr);
+    drawPeople(ui, dtUI);
+    if (ui - lastLabelRun >= 100) { placeLabels(ui, tr); lastLabelRun = ui; }   // 10 Hz
+    drawLabels(ui, dtUI, tr);
+    drawCounters(ui);
+    drawRings(ui);
+  }
+
+  /* ---------- seleção por clique / toque ---------- */
+  function pickPerson(px, py) {
+    let best = null, bd = Infinity;
+    for (const p of drawList) {
+      if (p.ralpha < 0.3) continue;
+      const d = U.hyp(px - p.sx, py - p.sy), lim = Math.max(p.r + 6, 13);
+      if (d < lim && d < bd) { bd = d; best = p; }
+    }
+    return best;
+  }
+  function pickZone(px, py) { const w = toWorld(px, py); for (const z of LAYOUT.zones) if (w.x >= z.r[0] && w.x <= z.r[2] && w.y >= z.r[1] && w.y <= z.r[3]) return z; return null; }
+
+  return {
+    cam, opts, resize, readTokens, draw, zoomAt, panBy, flyTo, fit, frameZone, startFollow, stopFollow, pickPerson, pickZone,
+    setSelected(p) { selected = p; lastLabelRun = -1e9; }, setSelectedZone(id) { selectedZone = id; }, setHover(p) { if (p !== hover) { hover = p; lastLabelRun = -1e9; } },
+    setReduced(v) { reduced = v; }, markHeatDirty() { heatDirty = true; }, onFollow(fn) { onFollowChange = fn; },
+    get lod() { return lod; }, get size() { return { W, H }; },
+  };
+})();
+
+/* ============================== 6. UI (controles, painel, lista, alertas, laço) ============================== */
+const UI = (() => {
+  const $ = (id) => document.getElementById(id);
+  const cv = $('map');
+  const st = { selected: null, zone: null, speed: 1, paused: false, reducedUser: null, theme: 'system', followMsg: null, followMsgAt: 0, lastSec: -1 };
+  const STATE_LABEL = { moving: 'Em movimento', stationary: 'Parado', pause: 'Pausa', weak: 'Sinal fraco', lost: 'Sem sinal', sos: 'SOS', private: 'Fora da área produtiva' };
+  const zname = (id) => (id === '__priv' ? 'Fora da área produtiva' : id ? LAYOUT.zoneById[id].name : 'Circulação (entre zonas)');
+  const STATUS_LABEL = { ok: 'No plano', under: 'Abaixo do plano', over: 'Acima da capacidade', uncovered: 'Zona descoberta', private: 'Área reservada' };
+
+  /* Ícone de estado (mesma forma do mapa) para a lista e o painel. */
+  function shapeSvg(p, size = 14) {
+    const s = p.state, base = s === 'weak' || s === 'lost' || s === 'private' ? p.base : s, c = size / 2;
+    const fill = { moving: '--moving', stationary: '--stationary', pause: '--break', sos: '--sos' }[base] || '--stationary';
+    if (s === 'private') return `<svg width="${size}" height="${size}" aria-hidden="true"><rect x="2" y="${c - 1}" width="${size - 4}" height="${c - 1}" rx="1.5" style="fill:var(--muted)"></rect><path d="M${c - 3} ${c - 1}v-2a3 3 0 0 1 6 0v2" style="fill:none;stroke:var(--muted);stroke-width:1.6"></path></svg>`;
+    if (s === 'lost') return `<svg width="${size}" height="${size}" aria-hidden="true"><circle cx="${c}" cy="${c}" r="${c - 2}" style="fill:none;stroke:var(--lost);stroke-width:1.8;stroke-dasharray:2.5 2"></circle><path d="M3 ${size - 3} ${size - 3} 3" style="stroke:var(--lost);stroke-width:1.4"></path></svg>`;
+    if (s === 'sos') return `<svg width="${size + 2}" height="${size + 2}" aria-hidden="true"><path d="M${c + 1} 1 ${size + 1} ${c + 1} ${c + 1} ${size + 1} 1 ${c + 1}Z" style="fill:var(--sos);stroke:var(--marker-outline);stroke-width:1.2"></path></svg>`;
+    const dash = s === 'weak' ? 'stroke:var(--text);stroke-dasharray:2.5 2;opacity:.75' : 'stroke:var(--marker-outline)';
+    if (base === 'pause') return `<svg width="${size}" height="${size}" aria-hidden="true"><rect x="1.5" y="1.5" width="${size - 3}" height="${size - 3}" rx="3" style="fill:var(${fill});${dash};stroke-width:1.2"></rect></svg>`;
+    return `<svg width="${size}" height="${size}" aria-hidden="true"><circle cx="${c}" cy="${c}" r="${c - 1.5}" style="fill:var(${fill});${dash};stroke-width:1.2"></circle></svg>`;
+  }
+
+  /* ---------- seleção ---------- */
+  function select(id, fly) {
+    st.selected = id; st.zone = null;
+    const p = id ? FRONT.byId[id] : null;
+    RENDER.setSelected(p); RENDER.setSelectedZone(null);
+    if (p && fly && !p.priv) RENDER.flyTo(p.rx, p.ry, Math.max(RENDER.cam.k, 22), true);
+    renderPanel(true); renderList(true);
+  }
+  function selectZone(id) {
+    st.zone = id; st.selected = null;
+    RENDER.setSelected(null); RENDER.setSelectedZone(id);
+    renderPanel(true); renderList(true);
+  }
+  function clearSel() { select(null); }
+
+  /* ---------- painel lateral ---------- */
+  /* O painel é refeito a cada 500 ms. Antes isso (a) engolia cliques — mousedown no botão antigo, mouseup no novo,
+     o click caía no <section> — e (b) tirava o foco do teclado do botão a cada refresh. Agora: não refaz com o
+     ponteiro pressionado dentro do painel, não refaz se o HTML não mudou e devolve o foco ao botão equivalente. */
+  let lastPanel = 0, lastPanelHtml = '', panelPress = false;
+  $('detail').addEventListener('pointerdown', () => { panelPress = true; });
+  ['pointerup', 'pointercancel'].forEach((t) => document.addEventListener(t, () => { panelPress = false; }, true));
+  function renderPanel(force) {
+    const now = performance.now();
+    if (!force && (now - lastPanel < 500 || panelPress)) return;
+    lastPanel = now;
+    const el = $('detail'), tr = clockNow() - FRONT.D;
+    let html;
+    if (st.selected) html = personHtml(FRONT.byId[st.selected], tr);
+    else if (st.zone) html = zoneHtml(LAYOUT.zoneById[st.zone], tr);
+    else html = overviewHtml(tr);
+    if (html === lastPanelHtml) return;
+    const ae = document.activeElement;
+    let key = null;
+    if (ae && ae !== el && el.contains(ae) && ae.dataset) {
+      if (ae.dataset.act) key = '[data-act="' + ae.dataset.act + '"]';
+      else if (ae.dataset.id) key = '[data-id="' + ae.dataset.id + '"]';
+      else if (ae.dataset.alert) key = '[data-alert="' + ae.dataset.alert + '"]';
+    }
+    el.innerHTML = html; lastPanelHtml = html;
+    if (key) { const n = el.querySelector(key); if (n) n.focus({ preventScroll: true }); }
+  }
+  function personHtml(p, tr) {
+    const priv = p.priv, mode = FRONT.mode;
+    const zoneId = priv ? '__priv' : mode === 'zone' ? p.zoneZ : p.zoneXY;
+    const since = mode === 'zone' ? p.zoneSinceZ : p.zoneSinceXY;
+    let stateTxt = STATE_LABEL[p.state];
+    if (p.state === 'stationary') stateTxt += ' há ' + U.dur(tr - p.stillSince);
+    if (p.state === 'lost') stateTxt += ' · última leitura ' + U.ago(p.age);
+    const act = priv ? '—' : SIM.currentLabel(p.id) || '—';
+    const rows = [
+      ['Estado', stateTxt],
+      ['Zona atual', zname(zoneId)],
+      ['Tempo na zona', priv ? '— (sem cronômetro individual)' : U.dur(tr - since) + ' (desde ' + U.hm(since) + ')'],
+      ['Distância hoje', U.dist(p.dist)],
+      ['Última leitura', priv ? '—' : U.ago(p.age)],
+      ['Precisão', priv ? '—' : mode === 'zone' ? 'nível de zona (sem posição exata)' : '± ' + NF1.format(p.acc) + ' m (R95)'],
+      ['Crachá', p.beacon + (p.batt != null ? ' · bateria ' + p.batt + '%' + (p.batt < 20 ? ' (baixa)' : '') : '')],
+      ['Atividade', act + ' <span class="muted">(WMS, simulado)</span>'],
+    ];
+    // linha do tempo do turno: zonas visitadas e tempos (área reservada aparece sem duração)
+    const tl = p.timeline.slice(-7);
+    const items = tl.map((e, i) => {
+      const end = i < tl.length - 1 ? tl[i + 1].t : tr;
+      const d = e.zone === '__priv' ? '—' : U.dur(end - e.t).replace(/ \d+ s$/, '');
+      return `<li><span class="num muted">${U.hm(e.t)}</span><span>${U.esc(zname(e.zone))}</span><span class="num">${d}</span></li>`;
+    }).reverse().join('');
+    const following = RENDER.cam.follow === p.id;
+    return `<h2>Funcionário selecionado</h2>
+      <div class="who">${shapeSvg(p, 22)}<div><h3>${U.esc(p.name)}</h3><p>${U.esc(p.roleLabel)}</p></div></div>
+      <dl class="kv">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${k === 'Atividade' ? v : U.esc(v)}</dd>`).join('')}</dl>
+      <h2 style="margin-top:14px">Linha do tempo do turno</h2>
+      <ul class="crumbs">${items || '<li><span></span><span class="muted">Sem registros</span><span></span></li>'}</ul>
+      <div class="actions">
+        <button type="button" class="seg" data-act="follow" ${priv ? 'disabled' : ''}>${following ? 'Parar de seguir' : 'Seguir no mapa'}</button>
+        <button type="button" class="seg" data-act="locate" ${priv ? 'disabled' : ''}>Centralizar</button>
+        <button type="button" class="seg" data-act="close">Fechar <span class="kbd">Esc</span></button>
+      </div>
+      <p class="note">Seguir uma pessoa é monitoramento individual: na produção, só perfis autorizados e com registro de auditoria. Produtividade individual (bipagens do WMS) fica nos relatórios, nunca como cor ou animação no mapa.</p>`;
+  }
+  function zoneHtml(z, tr) {
+    const S = FRONT.zst[z.id];
+    if (z.privacy) {
+      return `<h2>Zona selecionada</h2><div class="who"><div><h3>${U.esc(z.name)}</h3><p>Zona de privacidade</p></div></div>
+        <dl class="kv"><dt>Contagem agregada</dt><dd class="num">${U.esc(S.bucket)}</dd><dt>Regra</dt><dd>atraso de 60 s e mínimo de 3 pessoas para exibir o número</dd></dl>
+        <p class="note">O servidor não envia coordenadas individuais dentro desta área nem num halo de 3 m em volta. Ninguém aparece individualmente aqui, e o produto não mede tempo de banheiro por pessoa.</p>
+        <div class="actions"><button type="button" class="seg" data-act="frame">Enquadrar zona</button><button type="button" class="seg" data-act="close">Fechar</button></div>`;
+    }
+    const list = FRONT.zonePeople(z.id).map((p) => {
+      const since = FRONT.mode === 'zone' ? p.zoneSinceZ : p.zoneSinceXY;
+      return `<li><button type="button" data-id="${p.id}">${shapeSvg(p)}<span class="nm">${U.esc(p.name)}</span><span class="zn num">${U.dur(tr - since).replace(/ \d+ s$/, '')}</span></button></li>`;
+    }).join('');
+    const chip = `<span class="chip ${S.status}">${S.status === 'under' ? '▼ ' : S.status === 'over' ? '▲ ' : S.status === 'uncovered' ? '∅ ' : ''}${STATUS_LABEL[S.status]}</span>`;
+    return `<h2>Zona selecionada</h2><div class="who"><div><h3>${U.esc(z.name)}</h3><p>${chip}</p></div></div>
+      <dl class="kv">
+        <dt>Agora</dt><dd class="num">${S.shown ?? 0}</dd>
+        <dt>Planejado</dt><dd class="num">${z.planned ?? '— (área de apoio)'}</dd>
+        <dt>Capacidade</dt><dd class="num">${z.capacity ?? '—'}</dd>
+        <dt>Situação desde</dt><dd class="num">${U.hm(S.statusSince)}</dd>
+      </dl>
+      <h2 style="margin-top:14px">Na zona, por tempo de permanência</h2>
+      <ul id="zoneList" class="alerts" style="gap:0">${list || '<li class="muted">Ninguém na zona agora.</li>'}</ul>
+      <div class="actions"><button type="button" class="seg" data-act="frame">Enquadrar zona</button><button type="button" class="seg" data-act="close">Fechar</button></div>`;
+  }
+  function overviewHtml(tr) {
+    const counts = { moving: 0, stationary: 0, pause: 0, weak: 0, lost: 0, private: 0, sos: 0 };
+    FRONT.people.forEach((p) => counts[p.state]++);
+    const sum = ['moving', 'stationary', 'pause', 'weak', 'lost', 'private'].map((k) => {
+      const p = { state: k, base: k === 'private' || k === 'weak' || k === 'lost' ? 'stationary' : k };
+      return `<div>${shapeSvg(p)}<span>${STATE_LABEL[k]}</span><b>${counts[k]}</b></div>`;
+    }).join('');
+    const open = FRONT.alerts.filter((a) => a.status === 'open').sort((a, b) => a.sev - b.sev);
+    const al = open.map((a) => {
+      const z = a.zone ? LAYOUT.zoneById[a.zone] : null, p = a.pid ? FRONT.byId[a.pid] : null;
+      const txt = a.kind === 'sos' ? `SOS de ${U.esc(p.name)}${z ? ' · ' + U.esc(z.name) : ''}`
+        : a.kind === 'capacity' ? `Capacidade excedida · ${U.esc(z.name)} (${FRONT.zst[z.id].shown}/${z.capacity})`
+          : `Zona descoberta · ${U.esc(z.name)} · sem ninguém há ${U.dur(tr - a.openedAt).replace(/ \d+ s$/, '')}`;
+      return `<li><button type="button" data-alert="${a.id}"><span class="sev p${a.sev}">P${a.sev}</span><span>${txt}<br><span class="muted num">desde ${U.clock(a.openedAt)}</span></span></button></li>`;
+    }).join('');
+    const under = LAYOUT.zones.filter((z) => FRONT.zst[z.id].status === 'under').map((z) => `${U.esc(z.name)} <span class="num">${FRONT.zst[z.id].shown}/${z.planned}</span>`);
+    return `<h2>Agora no galpão</h2><div class="summary">${sum}</div>
+      <h2>Alertas abertos</h2><ul class="alerts">${al || '<li class="muted">Nenhum alerta aberto.</li>'}</ul>
+      ${under.length ? `<p class="note"><b>Abaixo do plano:</b> ${under.join(' · ')}</p>` : ''}
+      <p class="note">Clique em uma pessoa para ver zona, tempo na zona e distância. Duplo clique segue a pessoa; duplo clique numa zona a enquadra. Roda do mouse ou pinça aproximam.</p>`;
+  }
+  $('detail').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.id) return select(b.dataset.id, true);
+    if (b.dataset.alert) {
+      const a = FRONT.alerts.find((x) => x.id === b.dataset.alert); if (!a) return;
+      if (a.pid) return select(a.pid, true);
+      selectZone(a.zone); RENDER.frameZone(LAYOUT.zoneById[a.zone]); return;
+    }
+    const act = b.dataset.act;
+    if (act === 'close') clearSel();
+    else if (act === 'frame' && st.zone) RENDER.frameZone(LAYOUT.zoneById[st.zone]);
+    else if (act === 'locate' && st.selected) { const p = FRONT.byId[st.selected]; RENDER.flyTo(p.rx, p.ry, Math.max(RENDER.cam.k, 28), true); }
+    else if (act === 'follow' && st.selected) { if (RENDER.cam.follow === st.selected) RENDER.stopFollow(); else RENDER.startFollow(st.selected); renderPanel(true); }
+  });
+
+  /* ---------- lista acessível (espelho do canvas) ---------- */
+  const listEl = $('peopleList');
+  const norm = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  function buildList() {
+    listEl.innerHTML = FRONT.people.map((p) => `<li data-id="${p.id}"><button type="button" data-id="${p.id}"><span class="ic"></span><span class="nm">${U.esc(p.name)} <span class="muted">· ${U.esc(p.roleLabel)}</span></span><span class="zn"></span></button></li>`).join('');
+  }
+  let lastList = 0;
+  function renderList(force) {
+    const now = performance.now();
+    if (!force && now - lastList < 1000) return;
+    lastList = now;
+    const q = norm($('search').value.trim());
+    for (const li of listEl.children) {
+      const p = FRONT.byId[li.dataset.id], btn = li.firstElementChild;
+      li.hidden = q && !norm(p.name + ' ' + p.roleLabel).includes(q);
+      const ic = shapeSvg(p);
+      if (btn.children[0].innerHTML !== ic) btn.children[0].innerHTML = ic;
+      const z = p.priv ? 'Fora da área produtiva' : p.state === 'lost' ? 'Sem sinal · ' + U.ago(p.age) : zname(FRONT.mode === 'zone' ? p.zoneZ : p.zoneXY);
+      if (btn.children[2].textContent !== z) btn.children[2].textContent = z;
+      btn.setAttribute('aria-current', p.id === st.selected ? 'true' : 'false');
+      btn.setAttribute('aria-label', `${p.name}, ${p.roleLabel}, ${STATE_LABEL[p.state]}, ${z}`);
+    }
+  }
+  listEl.addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) select(b.dataset.id, true); });
+  $('search').addEventListener('input', () => renderList(true));
+
+  /* ---------- SOS (P1) ---------- */
+  function currentSos() { return FRONT.alerts.find((a) => a.kind === 'sos' && a.status === 'open'); }
+  function renderSos() {
+    const a = currentSos(), el = $('sosBanner');
+    if (!a) { el.hidden = true; $('sosBtn').disabled = false; return; }
+    const p = FRONT.byId[a.pid];
+    $('sosText').textContent = `${p.name} (${p.roleLabel}) · ${a.zone ? LAYOUT.zoneById[a.zone].name : 'zona desconhecida'} · acionado às ${U.clock(a.openedAt)}`;
+    el.hidden = false;
+  }
+  function onEvent(ev) {
+    if (ev.type !== 'sos') return;
+    FRONT.onSos(ev, performance.now());
+    renderSos(); renderPanel(true); renderList(true);
+  }
+  $('sosAck').addEventListener('click', () => {
+    const a = currentSos(); if (!a) return;
+    FRONT.ackSos(a.id, clockNow() - FRONT.D);
+    SIM.clearSos(a.pid, clockNow());
+    renderSos(); renderPanel(true); renderList(true);
+  });
+  $('sosGo').addEventListener('click', () => { const a = currentSos(); if (a) select(a.pid, true); });
+  $('sosBtn').addEventListener('click', () => {
+    const c = FRONT.people.filter((p) => p.has && !p.sos && !p.priv && p.state !== 'lost' && p.zoneXY);
+    if (!c.length) return;
+    const p = c[Math.floor(Math.random() * c.length)];
+    SIM.triggerSos(SIM.byId[p.id], clockNow());
+  });
+
+  /* ---------- controles ---------- */
+  function press(el, on) { el.setAttribute('aria-pressed', on ? 'true' : 'false'); }
+  function setMode(m) {
+    FRONT.setMode(m, performance.now());
+    press($('modeXY'), m === 'xy'); press($('modeZone'), m === 'zone');
+    $('modeChip').textContent = m === 'xy' ? 'Modo X/Y · posição estimada ± 2,5 m (R95) · grade de 12 gateways' : 'Modo zona · posição aproximada por zona (sem posição exata)';
+    if (m === 'zone' && RENDER.cam.k > 48) RENDER.flyTo(RENDER.cam.cx, RENDER.cam.cy, 48, true);
+    updateHeatLegend(); renderPanel(true); renderList(true);
+  }
+  $('modeXY').addEventListener('click', () => setMode('xy'));
+  $('modeZone').addEventListener('click', () => setMode('zone'));
+  const O = RENDER.opts;
+  $('layTrail').addEventListener('click', () => { O.trailSel = !O.trailSel; press($('layTrail'), O.trailSel); });
+  $('layTrailAll').addEventListener('click', () => {
+    O.trailAll = !O.trailAll; press($('layTrailAll'), O.trailAll);
+    if (O.trailAll && O.heat) { O.heat = false; press($('layHeat'), false); updateHeatLegend(); }   // mutuamente exclusivos (spec §6.2)
+  });
+  $('layHeat').addEventListener('click', () => {
+    O.heat = !O.heat; press($('layHeat'), O.heat); RENDER.markHeatDirty();
+    if (O.heat && O.trailAll) { O.trailAll = false; press($('layTrailAll'), false); }
+    updateHeatLegend();
+  });
+  $('heatWin').addEventListener('change', (e) => { O.heatWin = +e.target.value; RENDER.markHeatDirty(); updateHeatLegend(); });
+  $('layGw').addEventListener('click', () => { O.gw = !O.gw; press($('layGw'), O.gw); });
+  function updateHeatLegend() {
+    $('heatWin').hidden = !O.heat; $('heatLegend').hidden = !O.heat;
+    const xyScale = { 15: 3, 60: 10, 0: 30 }[O.heatWin], zScale = { 15: '0,4', 60: '1,5', 0: '4' }[O.heatWin];
+    $('heatUnit').textContent = FRONT.mode === 'zone' ? zScale + ' pessoa-min/m² (média da zona)' : xyScale + ' pessoa-min/m² (escala fixa)';
+  }
+  function setSpeed(v) {
+    st.speed = v; st.paused = false;
+    document.querySelectorAll('[data-speed]').forEach((b) => press(b, +b.dataset.speed === v));
+    press($('spdPause'), false); $('spdPause').textContent = 'Pausar';
+  }
+  function togglePause() {
+    st.paused = !st.paused; press($('spdPause'), st.paused); $('spdPause').textContent = st.paused ? 'Continuar' : 'Pausar';
+  }
+  document.querySelectorAll('[data-speed]').forEach((b) => b.addEventListener('click', () => setSpeed(+b.dataset.speed)));
+  $('spdPause').addEventListener('click', togglePause);
+  $('zoomIn').addEventListener('click', () => { const s = RENDER.size; RENDER.zoomAt(s.W / 2, s.H / 2, 1.35); });
+  $('zoomOut').addEventListener('click', () => { const s = RENDER.size; RENDER.zoomAt(s.W / 2, s.H / 2, 1 / 1.35); });
+  $('zoomFit').addEventListener('click', () => RENDER.fit(true));
+
+  // movimento reduzido: preferência do sistema + alternância no app (TVs nem sempre expõem a preferência)
+  const mqMotion = matchMedia('(prefers-reduced-motion: reduce)');
+  function applyMotion() {
+    const v = st.reducedUser !== null ? st.reducedUser : mqMotion.matches || /motion=reduced/.test(location.search);
+    FRONT.setReduced(v); RENDER.setReduced(v); press($('motionBtn'), v);
+  }
+  mqMotion.addEventListener('change', applyMotion);
+  $('motionBtn').addEventListener('click', () => { st.reducedUser = $('motionBtn').getAttribute('aria-pressed') !== 'true'; applyMotion(); });
+
+  // tema: sistema → claro → escuro
+  const mqDark = matchMedia('(prefers-color-scheme: dark)');
+  mqDark.addEventListener('change', () => RENDER.readTokens());
+  $('themeBtn').addEventListener('click', () => {
+    st.theme = st.theme === 'system' ? 'light' : st.theme === 'light' ? 'dark' : 'system';
+    if (st.theme === 'system') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = st.theme;
+    $('themeBtn').textContent = 'Tema: ' + { system: 'sistema', light: 'claro', dark: 'escuro' }[st.theme];
+    RENDER.readTokens();
+  });
+
+  /* ---------- seguir pessoa ---------- */
+  RENDER.onFollow((reason) => {
+    if (reason === 'privacy') { st.followMsg = 'Em área reservada · seguimento encerrado'; st.followMsgAt = performance.now(); }
+    else if (reason === 'lost') { st.followMsg = 'Sinal perdido · seguimento encerrado'; st.followMsgAt = performance.now(); }
+    else st.followMsg = null;
+    renderFollow(); renderPanel(true);
+  });
+  function renderFollow() {
+    const chip = $('followChip'), cam = RENDER.cam;
+    if (cam.follow) {
+      const p = FRONT.byId[cam.follow];
+      $('followText').textContent = cam.followPaused ? 'Seguimento pausado · ' + p.short : 'Seguindo: ' + p.short + ' · Esc para sair';
+      $('followBtn').textContent = cam.followPaused ? 'Retomar' : 'Sair';
+      chip.hidden = false;
+    } else if (st.followMsg && performance.now() - st.followMsgAt < 4000) {
+      $('followText').textContent = st.followMsg; $('followBtn').textContent = 'OK'; chip.hidden = false;
+    } else chip.hidden = true;
+  }
+  $('followBtn').addEventListener('click', () => {
+    const cam = RENDER.cam;
+    if (cam.follow && cam.followPaused) cam.followPaused = false;
+    else if (cam.follow) RENDER.stopFollow();
+    else st.followMsg = null;
+    renderFollow(); renderPanel(true);
+  });
+
+  /* ---------- entrada no mapa: arrastar, pinça, roda, clique, duplo clique, hover ---------- */
+  const ptrs = new Map();
+  let down = null, pinch = null, lastClick = null;
+  const rel = (e) => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+  cv.addEventListener('pointerdown', (e) => {
+    cv.setPointerCapture(e.pointerId);
+    const q = rel(e); ptrs.set(e.pointerId, q);
+    if (ptrs.size === 1) { down = { x: q.x, y: q.y, t: performance.now(), moved: false }; pinch = null; }
+    else if (ptrs.size === 2) {
+      const [a, b] = [...ptrs.values()];
+      pinch = { d: U.hyp(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 }; down = null;
+    }
+  });
+  cv.addEventListener('pointermove', (e) => {
+    const q = rel(e);
+    if (!ptrs.has(e.pointerId)) {                    // hover (mouse)
+      if (e.pointerType === 'mouse') { const p = RENDER.pickPerson(q.x, q.y); RENDER.setHover(p); cv.classList.toggle('pointer', !!p); }
+      return;
+    }
+    const prev = ptrs.get(e.pointerId); ptrs.set(e.pointerId, q);
+    if (ptrs.size === 1 && down) {
+      if (!down.moved && U.hyp(q.x - down.x, q.y - down.y) > 5) { down.moved = true; cv.classList.add('dragging'); }
+      if (down.moved) {
+        RENDER.panBy(q.x - prev.x, q.y - prev.y);
+        if (RENDER.cam.follow && !RENDER.cam.followPaused) { RENDER.cam.followPaused = true; renderFollow(); }
+      }
+    } else if (ptrs.size === 2 && pinch) {
+      const [a, b] = [...ptrs.values()];
+      const d = U.hyp(a.x - b.x, a.y - b.y), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      RENDER.panBy(mx - pinch.mx, my - pinch.my);
+      if (pinch.d > 0) RENDER.zoomAt(mx, my, d / pinch.d);
+      pinch = { d, mx, my };
+      if (RENDER.cam.follow) { RENDER.cam.followPaused = true; renderFollow(); }
+    }
+  });
+  function endPtr(e) {
+    const q = rel(e);
+    ptrs.delete(e.pointerId);
+    cv.classList.remove('dragging');
+    if (ptrs.size === 0 && down && !down.moved && performance.now() - down.t < 600) click(q.x, q.y);
+    if (ptrs.size < 2) pinch = null;
+    if (ptrs.size === 0) down = null;
+    else if (ptrs.size === 1) resumePan();
+  }
+  // fim da pinça com um dedo ainda na tela: continua arrastando com ele (antes o mapa "travava" até soltar tudo)
+  function resumePan() { const [r] = [...ptrs.values()]; down = { x: r.x, y: r.y, t: 0, moved: true }; }
+  cv.addEventListener('pointerup', endPtr);
+  cv.addEventListener('pointercancel', (e) => {
+    ptrs.delete(e.pointerId); pinch = null; cv.classList.remove('dragging');
+    if (ptrs.size === 1) resumePan(); else down = null;
+  });
+  cv.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && !ptrs.size) { RENDER.setHover(null); cv.classList.remove('pointer'); } });
+  cv.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const q = rel(e), k = e.deltaMode === 1 ? 0.05 : 0.0016;
+    RENDER.zoomAt(q.x, q.y, Math.exp(-e.deltaY * k));
+    if (RENDER.cam.follow) { RENDER.cam.followPaused = true; renderFollow(); }
+  }, { passive: false });
+  function click(x, y) {
+    const now = performance.now();
+    const dbl = lastClick && now - lastClick.t < 350 && U.hyp(x - lastClick.x, y - lastClick.y) < 14;
+    lastClick = dbl ? null : { x, y, t: now };
+    const p = RENDER.pickPerson(x, y);
+    if (p) { select(p.id, false); if (dbl) { RENDER.startFollow(p.id); renderPanel(true); } return; }
+    const z = RENDER.pickZone(x, y);
+    if (z) { selectZone(z.id); if (dbl) RENDER.frameZone(z); return; }
+    clearSel();
+  }
+  document.addEventListener('keydown', (e) => {
+    const tag = (e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'select') { if (e.key === 'Escape') e.target.blur(); return; }
+    const s = RENDER.size;
+    switch (e.key) {
+      case '/': e.preventDefault(); $('search').focus(); break;
+      case '+': case '=': RENDER.zoomAt(s.W / 2, s.H / 2, 1.25); break;
+      case '-': RENDER.zoomAt(s.W / 2, s.H / 2, 0.8); break;
+      case 'ArrowLeft': if (tag !== 'button') { RENDER.panBy(60, 0); e.preventDefault(); } break;
+      case 'ArrowRight': if (tag !== 'button') { RENDER.panBy(-60, 0); e.preventDefault(); } break;
+      case 'ArrowUp': if (tag !== 'button') { RENDER.panBy(0, 60); e.preventDefault(); } break;
+      case 'ArrowDown': if (tag !== 'button') { RENDER.panBy(0, -60); e.preventDefault(); } break;
+      case 'Home': case '0': RENDER.fit(true); break;
+      case 'Escape': if (RENDER.cam.follow) { RENDER.stopFollow(); renderFollow(); } else clearSel(); break;
+      case ' ': if (tag !== 'button') { e.preventDefault(); togglePause(); } break;
+      default:
+    }
+  });
+
+  /* ---------- HUD por quadro ---------- */
+  let lastLive = 0;
+  function tick(now, tr) {
+    const sec = Math.floor(tr);
+    if (sec !== st.lastSec) {
+      st.lastSec = sec;
+      $('clock').textContent = U.clock(tr);
+      const present = FRONT.people.filter((p) => p.has && p.state !== 'lost').length;
+
+      $('presentTotal').textContent = present + ' presentes · ' + FRONT.people.length + ' na escala';
+    }
+    if (now - lastLive > 250) {
+      lastLive = now;
+      const chip = $('liveChip'), d = NF1.format(FRONT.D);
+      chip.classList.toggle('paused', st.paused);
+      $('liveText').textContent = st.paused ? 'PAUSADO · dados de ' + U.clock(tr) : st.speed === 1 ? 'AO VIVO · atraso ~' + d + ' s' : 'SIMULAÇÃO ' + st.speed + '× · atraso ~' + d + ' s de dados';
+      renderFollow();
+    }
+    renderPanel(false); renderList(false);
+  }
+
+  /* ---------- relógio da simulação + laço rAF ---------- */
+  let simClock = 0;
+  const clockNow = () => simClock;
+  function start(c0) {
+    simClock = c0;
+    RENDER.readTokens();
+    new ResizeObserver(() => RENDER.resize()).observe(cv.parentElement);
+    RENDER.resize();
+    if (innerWidth < 600) $('legend').open = false;
+    applyMotion(); buildList(); setMode('xy'); updateHeatLegend();
+    // parâmetros opcionais para TV/kiosk e demonstração: ?modo=zona&calor=1&vel=5&tema=escuro&motion=reduced
+    try {
+      const q = new URLSearchParams(location.search);
+      if (q.get('modo') === 'zona') setMode('zone');
+      if (q.get('calor') === '1') $('layHeat').click();
+      if (['5', '20'].includes(q.get('vel'))) setSpeed(+q.get('vel'));
+      if (q.get('tema') === 'escuro' || q.get('tema') === 'claro') { st.theme = q.get('tema') === 'escuro' ? 'light' : 'system'; $('themeBtn').click(); }
+    } catch (err) { /* sem parâmetros */ }
+    renderPanel(true); renderList(true);
+    const deliver = (s) => FRONT.ingest(s, false);
+    let last = performance.now();
+    function frame(now) {
+      const dtUI = Math.min(now - last, 100); last = now;     // dt limitado a 100 ms; aba oculta não "corre atrás"
+      const dtData = st.paused ? 0 : (dtUI / 1000) * st.speed;
+      let rem = dtData;
+      while (rem > 1e-9) { const h = Math.min(rem, 0.1); SIM.step(simClock, h, deliver); simClock += h; rem -= h; SIM.scriptedEvents(simClock); }
+      const tr = simClock - FRONT.D;
+      FRONT.update(tr, simClock, dtData, now, false);
+      RENDER.draw(now, tr, dtData, dtUI);
+      tick(now, tr);
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  }
+  return { start, onEvent };
+})();
+
+/* ============================== BOOT ============================== */
+(function boot() {
+  FRONT.init(SIM.agents.map((a) => ({
+    id: a.id, name: a.name, short: a.short, initials: a.initials, role: a.role, roleLabel: a.roleLabel, vehicle: a.vehicle, beacon: a.beacon,
+    ws: /^[BC]0\d$/.test(a.base) ? a.base : a.base === 'dev' ? 'D01' : null,
+  })));
+  FRONT.setAggregate((t) => SIM.wcBucketAt(t));
+  SIM.setOnEvent((ev) => UI.onEvent(ev));
+  // pré-aquecimento: simula 08:00 → 09:30 sem desenhar (distâncias, linha do tempo e calor já começam preenchidos)
+  let clock = SIM.DAY_START;
+  const pre = (s) => FRONT.ingest(s, true);
+  let n = 0;
+  while (clock < SIM.VIEW_START - 30) {
+    SIM.step(clock, 0.5, pre); clock += 0.5;
+    if (++n % 10 === 0) FRONT.update(clock - FRONT.D, clock, 0, 0, true);
+  }
+  const live = (s) => FRONT.ingest(s, false);
+  while (clock < SIM.VIEW_START) { SIM.step(clock, 0.1, live); clock += 0.1; }
+  FRONT.update(clock - FRONT.D, clock, 0, 0, true);
+  UI.start(clock);
+})();
+</script>
+</body>
+</html>
